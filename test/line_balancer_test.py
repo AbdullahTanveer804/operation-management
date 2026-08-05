@@ -1,0 +1,43 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+from src.line_balancer import Operation, compute_pitch_time, balance_line, print_report
+
+# Real dataset from the factory sheet
+operations = [
+    Operation(1, "Chest pocket Hem", [], "S/N L/S", 10.1),
+    Operation(2, "Waist Pocket Hem (L+R)", [], "S/N L/S", 22.0),
+    Operation(3, "V Panel O/L (L+R)", [], "3/T O/L", 17.5),
+    Operation(4, "Moon O/L", [], "3/T O/L", 15.4),
+    Operation(5, "V Panel Hem (L+R)", [3], "S/N L/S", 23.9),
+    Operation(6, "Moon Label Att.", [4], "S/N L/S", 21.1),
+    Operation(7, "Chest Pocket Press", [1], "Iron Press", 16.6),
+    Operation(8, "Waist Pocket press (L+R)", [2], "Iron Press", 34.1),
+    Operation(9, "Chest pocket Label Att.", [7], "S/N L/S", 11.6),
+    Operation(10, "V Panel Att. With Body (L+R)", [5, 9], "5/T O/L", 24.3),
+    Operation(11, "V Panel Joint Top Stitching", [10], "S/N L/S", 24.0),
+    Operation(12, "Chest Pocket Att.", [9, 11], "S/N L/S", 29.6),
+    Operation(13, "Waist Pocket Att. (L+R)", [8, 12], "S/N L/S", 59.2),
+    Operation(14, "Sholder Att. + Moon (L+R)", [6, 13], "5/T O/L", 31.0),
+    Operation(15, "Moon Att. With Back", [14], "S/N L/S", 18.4),
+    Operation(16, "Moon Top Stitching", [15], "S/N L/S", 18.4),
+    Operation(17, "Sleeve Att. (L+R)", [16], "5/T O/L", 53.1),
+    Operation(18, "Vent O/L", [17], "3/T O/L", 38.3),
+    Operation(19, "Side Att. (L+R)", [18], "5/T O/L", 47.7),
+    Operation(20, "Vent B/T (L+R)", [19], "S/N L/S", 23.1),
+    Operation(21, "Vent Make (L+R)", [20], "S/N L/S", 35.9),
+    Operation(22, "Piece Upside Down", [21], "By Hand", 12.9),
+    Operation(23, "Sleeve Hem (L+R)", [22], "S/N L/S", 45.0),
+    Operation(24, "Bottom Hem", [23], "S/N L/S", 37.4),
+]
+
+total_basic_time = sum(op.basic_time for op in operations)
+print(f"Total Basic Time (24 listed ops) = {total_basic_time:.1f}s\n")
+
+# Factory uses 27 total operations (24 stitching + 3 non-stitching) to compute Pitch Time
+pitch_time, ucl, lcl = compute_pitch_time(total_basic_time, total_op_count=27, tolerance=0.15)
+
+workstations = balance_line(operations, pitch_time, ucl, lcl)
+print_report(workstations, pitch_time, ucl, lcl)
