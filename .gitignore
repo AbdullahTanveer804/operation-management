@@ -8,3 +8,19 @@ wheels/
 
 # Virtual environments
 .venv
+*.pyc
+.venv/
+venv/
+
+# Test and cache files  
+.pytest_cache/
+
+# Excel files
+*.xlsx
+!data/*.xlsx
+
+# CSV files
+*.csv
+!data/*.csv
+
+line_balancer_test.py
