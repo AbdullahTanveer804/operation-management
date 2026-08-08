@@ -8,7 +8,7 @@ from .balancing import group_and_balance, is_within_range
 from .io_utils import read_operations
 from .metrics import calculate_line_efficiency, calculate_pitch_time as _calculate_pitch_time, calculate_tolerance_bands
 from .models import Operation, Workstation
-from .sequencing import sort_by_predecessor
+from .sequencing import sort_by_id
 
 # Re-export the current package API.
 Operation = Operation

@@ -1,594 +1,824 @@
+"""
+Line Balancing & Efficiency Tool - Modern Web Application
+
+A professional Flask web app for:
+- IE departments (planning view): full features on desktop
+- Floor supervisors (monitoring view): responsive on tablets
+- Real-time balancing calculations and manual overrides
+"""
+
+import json
+import io
 import os
 import tempfile
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
-from flask import Flask, render_template_string, request, send_file
-from werkzeug.exceptions import BadRequest
+import pandas as pd
+from flask import Flask, jsonify, render_template_string, request, send_file
 
-from src.line_balancer.main import run_workflow
+from src.line_balancer.models import Operation, Workstation
+from src.line_balancer.io_utils import read_operations
+from src.line_balancer.sequencing import sort_by_id
+from src.line_balancer.metrics import calculate_pitch_time, calculate_tolerance_bands, calculate_line_efficiency
+from src.line_balancer.balancing import group_and_balance
+from src.line_balancer.report import build_report_dataframe, determine_status
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max
 
-HTML = """
-<!doctype html>
+# In-memory session storage (use Redis/DB for production)
+SESSIONS = {}
+
+
+def generate_session_id():
+    """Generate a unique session ID."""
+    return str(uuid.uuid4())[:8]
+
+
+def store_calculation(session_id: str, data: Dict):
+    """Store calculation results in session."""
+    SESSIONS[session_id] = data
+
+
+def get_calculation(session_id: str) -> Optional[Dict]:
+    """Retrieve calculation results from session."""
+    return SESSIONS.get(session_id)
+
+
+def calculate_balance(operations: List[Operation], total_ops: Optional[int] = None, tolerance: float = 0.15) -> Dict:
+    """
+    Run the complete balancing calculation and return all results.
+    
+    Args:
+        operations: List of Operation objects from CSV/Excel
+        total_ops: Total operation count (for Pitch Time calculation)
+        tolerance: UCL/LCL tolerance (default 15%)
+    
+    Returns:
+        Dictionary with all calculation results
+    """
+    # Step 1: Sort operations by ID
+    sorted_ops = sort_by_id(operations)
+    
+    # Step 2: Calculate Pitch Time and control limits
+    pitch_time = calculate_pitch_time(sorted_ops, total_ops)
+    ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
+    
+    # Step 3: Balance operations into workstations
+    workstations = group_and_balance(sorted_ops, ucl, lcl)
+    
+    # Step 4: Calculate line efficiency
+    line_efficiency = calculate_line_efficiency(sorted_ops, workstations, pitch_time)
+    
+    # Step 5: Build report
+    report_df = build_report_dataframe(workstations, ucl, lcl)
+    
+    return {
+        "operations": operations,
+        "sorted_operations": sorted_ops,
+        "pitch_time": pitch_time,
+        "ucl": ucl,
+        "lcl": lcl,
+        "workstations": workstations,
+        "line_efficiency": line_efficiency,
+        "report_df": report_df,
+        "total_ops": total_ops or len(operations),
+        "tolerance": tolerance,
+    }
+
+
+# ============== ROUTES ==============
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    """Main page: upload file, configure parameters, view results."""
+    error = None
+    result = None
+    session_id = None
+    rows = []
+    
+    if request.method == "POST":
+        try:
+            # Get file and parameters
+            file = request.files.get("file")
+            total_ops_str = request.form.get("total_ops", "")
+            tolerance_str = request.form.get("tolerance", "0.15")
+            
+            if not file or file.filename == "":
+                error = "Please select a file to upload."
+            else:
+                # Parse parameters
+                total_ops = int(total_ops_str) if total_ops_str else None
+                tolerance = float(tolerance_str)
+                
+                # Read operations from file
+                filepath = Path(file.filename)
+                if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+                    error = "File must be CSV or Excel (.xlsx, .xls)."
+                else:
+                    # Save temporarily and read
+                    temp_path = None
+                    try:
+                        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix=Path(file.filename).suffix) as tmp:
+                            file.save(tmp.name)
+                            temp_path = tmp.name
+                        
+                        operations = read_operations(temp_path)
+                        
+                        # Check for errors in operations
+                        flagged = [op for op in operations if op.flagged]
+                        if flagged:
+                            error_list = "<br>".join([f"Op {op.op_id}: {op.flagged}" for op in flagged])
+                            error = f"File has validation errors:<br>{error_list}"
+                        else:
+                            # Run calculation
+                            result = calculate_balance(operations, total_ops, tolerance)
+                            
+                            # Convert dataframe to list of dicts for template
+                            df = result["report_df"]
+                            rows = df.to_dict("records")
+                            
+                            # Format numeric values
+                            for row in rows:
+                                row["Combined Basic Time"] = f"{row['Combined Basic Time']:.2f}"
+                                row["Balancing SAM"] = f"{row['Balancing SAM']:.2f}"
+                            
+                            # Generate session ID
+                            session_id = generate_session_id()
+                            store_calculation(session_id, result)
+                    
+                    finally:
+                        # Clean up temp file
+                        if temp_path and os.path.exists(temp_path):
+                            try:
+                                os.remove(temp_path)
+                            except:
+                                pass
+        
+        except Exception as e:
+            error = f"Error processing file: {str(e)}"
+    
+    return render_template_string(HTML_TEMPLATE, 
+                                  error=error, 
+                                  result=result, 
+                                  rows=rows, 
+                                  session_id=session_id)
+
+
+@app.route("/api/export/<format>/<session_id>")
+def export(format: str, session_id: str):
+    """Export results to CSV or Excel."""
+    calc = get_calculation(session_id)
+    if not calc:
+        return jsonify({"error": "Session not found"}), 404
+    
+    df = calc["report_df"]
+    
+    if format == "csv":
+        buffer = io.StringIO()
+        df.to_csv(buffer, index=False)
+        buffer.seek(0)
+        return send_file(
+            io.BytesIO(buffer.getvalue().encode()),
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name=f"line_balance_{session_id}.csv"
+        )
+    elif format == "xlsx":
+        buffer = io.BytesIO()
+        df.to_excel(buffer, index=False)
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=f"line_balance_{session_id}.xlsx"
+        )
+    
+    return jsonify({"error": "Invalid format"}), 400
+
+
+@app.route("/api/recalculate", methods=["POST"])
+def recalculate():
+    """Recalculate with manual overrides."""
+    data = request.json
+    session_id = data.get("session_id")
+    
+    calc = get_calculation(session_id)
+    if not calc:
+        return jsonify({"error": "Session not found"}), 404
+    
+    # TODO: Implement manual override logic here
+    # For now, just return the same calculation
+    
+    return jsonify({"status": "ok", "result": calc})
+
+
+@app.route("/monitor")
+def monitor():
+    """Floor monitoring view (simplified, responsive)."""
+    return render_template_string(MONITOR_TEMPLATE)
+
+
+# ============== HTML TEMPLATES ==============
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Line Balancer</title>
-  <style>
-    :root,
-    [data-theme="dark"] {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --surface-2: #243044;
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #e8edf4;
-      --text-muted: #8b9cb3;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --accent-glow: rgba(59, 130, 246, 0.25);
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --header-gradient: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
-      --row-hover: rgba(59, 130, 246, 0.06);
-      --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-      --toggle-bg: var(--surface-2);
-      --toggle-border: var(--border);
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line Balancing Optimizer</title>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --surface-2: #243044;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e8edf4;
+            --text-muted: #8b9cb3;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --transition: 0.2s ease;
+        }
 
-    [data-theme="light"] {
-      --bg: #f1f5f9;
-      --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --border: rgba(15, 23, 42, 0.1);
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --accent-glow: rgba(37, 99, 235, 0.18);
-      --success: #16a34a;
-      --warning: #d97706;
-      --danger: #dc2626;
-      --header-gradient: linear-gradient(135deg, #0f172a 0%, #475569 100%);
-      --row-hover: rgba(37, 99, 235, 0.05);
-      --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
-      --toggle-bg: #ffffff;
-      --toggle-border: rgba(15, 23, 42, 0.12);
-    }
+        [data-theme="light"] {
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --border: rgba(15, 23, 42, 0.1);
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+        }
 
-    :root {
-      --radius: 12px;
-      --radius-sm: 8px;
-      --transition: 0.2s ease;
-    }
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: background var(--transition), color var(--transition);
+        }
 
-    body {
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      line-height: 1.5;
-      transition: background var(--transition), color var(--transition);
-    }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
 
-    .page {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 32px 24px 64px;
-    }
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
 
-    /* Header */
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      margin-bottom: 32px;
-    }
-    .header-text h1 {
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      background: var(--header-gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .header-text p {
-      color: var(--text-muted);
-      font-size: 0.9rem;
-      margin-top: 6px;
-    }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
 
-    /* Theme Toggle */
-    .theme-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--toggle-bg);
-      border: 1px solid var(--toggle-border);
-      border-radius: 999px;
-      padding: 6px 14px 6px 10px;
-      cursor: pointer;
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--text-muted);
-      transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
-      flex-shrink: 0;
-    }
-    .theme-toggle:hover {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-    .theme-toggle:active {
-      transform: scale(0.97);
-    }
-    .theme-toggle svg {
-      width: 18px;
-      height: 18px;
-      fill: currentColor;
-    }
-    .theme-toggle .icon-sun { display: none; }
-    .theme-toggle .icon-moon { display: block; }
-    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
-    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+        .header p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
 
-    /* Form Card */
-    .form-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 28px;
-      margin-bottom: 32px;
-      box-shadow: var(--shadow);
-      transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
-    }
-    .form-card h2 {
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      margin-bottom: 20px;
-    }
-    .form-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 20px;
-      align-items: end;
-    }
-    @media (max-width: 768px) {
-      .form-grid { grid-template-columns: 1fr; }
-      .header { flex-direction: column; align-items: stretch; }
-    }
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .field.full-width {
-      grid-column: 1 / -1;
-    }
-    label {
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
-    input[type="number"],
-    input[type="file"] {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      padding: 12px 14px;
-      font-size: 0.95rem;
-      transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
-      width: 100%;
-    }
-    input[type="number"]:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-    input[type="file"] {
-      cursor: pointer;
-      padding: 10px 14px;
-    }
-    input[type="file"]::file-selector-button {
-      background: var(--accent);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 16px;
-      margin-right: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background var(--transition);
-    }
-    input[type="file"]::file-selector-button:hover {
-      background: var(--accent-hover);
-    }
-    button[type="submit"] {
-      background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
-      color: white;
-      border: none;
-      border-radius: var(--radius-sm);
-      padding: 14px 28px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform var(--transition), box-shadow var(--transition);
-      box-shadow: 0 4px 14px var(--accent-glow);
-      width: 100%;
-    }
-    button[type="submit"]:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px var(--accent-glow);
-    }
-    button[type="submit"]:active {
-      transform: translateY(0);
-    }
+        .theme-toggle {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all var(--transition);
+        }
 
-    /* Results Section */
-    .results-section {
-      animation: fadeIn 0.4s ease;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .results-section h2 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin-bottom: 20px;
-      color: var(--text);
-    }
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 16px;
-      margin-bottom: 32px;
-    }
-    .metric-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-      transition: border-color var(--transition), transform var(--transition), background var(--transition), box-shadow var(--transition);
-    }
-    .metric-card:hover {
-      border-color: rgba(59, 130, 246, 0.3);
-      transform: translateY(-2px);
-    }
-    .metric-card .label {
-      font-size: 0.75rem;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-    }
-    .metric-card .value {
-      font-size: 1.35rem;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      color: var(--text);
-    }
-    .metric-card.highlight .value {
-      color: var(--accent);
-    }
+        .theme-toggle:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
 
-    /* Table Section */
-    .table-section h3 {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 16px;
-      color: var(--text-muted);
-    }
-    .table-wrapper {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      box-shadow: var(--shadow);
-      transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
-    }
-    .table-scroll {
-      overflow-x: auto;
-    }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      font-size: 0.9rem;
-    }
-    th, td {
-      padding: 14px 16px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-    }
-    th {
-      background: var(--surface-2);
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      white-space: nowrap;
-      transition: background var(--transition);
-    }
-    tr:last-child td {
-      border-bottom: none;
-    }
-    tbody tr {
-      transition: background var(--transition);
-    }
-    tbody tr:hover {
-      background: var(--row-hover);
-    }
-    td {
-      color: var(--text);
-      font-variant-numeric: tabular-nums;
-    }
-    td:nth-child(2) {
-      font-variant-numeric: normal;
-      max-width: 280px;
-    }
-    .status-ok {
-      display: inline-block;
-      background: rgba(34, 197, 94, 0.15);
-      color: var(--success);
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    .status-warn-high {
-      display: inline-block;
-      background: rgba(239, 68, 68, 0.15);
-      color: var(--danger);
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    .status-warn-low {
-      display: inline-block;
-      background: rgba(245, 158, 11, 0.15);
-      color: var(--warning);
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-  </style>
+        /* Form Card */
+        .form-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .form-card h2 {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            align-items: end;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        input[type="file"],
+        input[type="number"] {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            padding: 12px 14px;
+            font-size: 14px;
+            transition: all var(--transition);
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
+        input[type="file"]::file-selector-button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            margin-right: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background var(--transition);
+        }
+
+        input[type="file"]::file-selector-button:hover {
+            background: var(--accent-hover);
+        }
+
+        button[type="submit"] {
+            background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 12px 28px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+            transition: all var(--transition);
+        }
+
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+        }
+
+        button[type="submit"]:active {
+            transform: translateY(0);
+        }
+
+        /* Error Message */
+        .error-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--danger);
+            border-radius: var(--radius);
+            color: var(--danger);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: all var(--transition);
+        }
+
+        .metric-card:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .metric-card .label {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .metric-card .value {
+            font-size: 24px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+
+        .metric-card.highlight .value {
+            color: var(--accent);
+        }
+
+        /* Table Section */
+        .table-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .table-wrapper {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th {
+            background: var(--surface-2);
+            padding: 14px 16px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+        }
+
+        tbody tr:hover {
+            background: rgba(59, 130, 246, 0.06);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .status-ok {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .status-ucl {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        .status-lcl {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+        }
+
+        /* Export Buttons */
+        .export-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+
+        .export-buttons button {
+            background: var(--surface-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+
+        .export-buttons button:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        /* Results Section */
+        .results-section {
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px 12px;
+            }
+            
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics-grid {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 10px 12px;
+            }
+        }
+    </style>
 </head>
 <body>
-  <div class="page">
-    <header class="header">
-      <div class="header-text">
-        <h1>Line Balancing Optimizer</h1>
-        <p>Upload your operation data and configure parameters to optimize workstation balance.</p>
-      </div>
-      <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
-        <svg class="icon-moon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-        <svg class="icon-sun" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="12" cy="12" r="5"/>
-          <line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <span class="toggle-label">Light mode</span>
-      </button>
-    </header>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Line Balancing Optimizer</h1>
+                <p>Upload operation data and configure parameters to optimize workstation balance</p>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+        </div>
 
-    <form method="post" enctype="multipart/form-data" class="form-card">
-      <h2>Configuration</h2>
-      <div class="form-grid">
-        <div class="field full-width">
-          <label>Upload CSV/XLSX file</label>
-          <input type="file" name="file" accept=".csv,.xlsx,.xls">
-        </div>
-        <div class="field">
-          <label>Total operation count</label>
-          <input type="number" name="total_ops" value="27">
-        </div>
-        <div class="field">
-          <label>Tolerance</label>
-          <input type="number" step="0.01" name="tolerance" value="0.15">
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <button type="submit">Run calculations</button>
-        </div>
-      </div>
-    </form>
+        <form method="post" enctype="multipart/form-data" class="form-card">
+            <h2>Configuration</h2>
+            <div class="form-grid">
+                <div class="field" style="grid-column: span 2;">
+                    <label>Upload CSV/XLSX file</label>
+                    <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+                </div>
+                <div class="field">
+                    <label>Total operation count</label>
+                    <input type="number" name="total_ops" value="27" min="1">
+                </div>
+                <div class="field">
+                    <label>Tolerance</label>
+                    <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
+                </div>
+                <div class="field">
+                    <label>&nbsp;</label>
+                    <button type="submit">Run calculations</button>
+                </div>
+            </div>
+        </form>
 
-    {% if error %}
-      <div class="form-card" style="border-color: var(--danger); background: rgba(239,68,68,0.08); color: var(--danger); margin-bottom: 24px;">
-        <strong>Error:</strong> {{ error }}
-      </div>
-    {% endif %}
+        {% if error %}
+        <div class="error-box">
+            <strong>Error:</strong> {{ error }}
+        </div>
+        {% endif %}
 
-    {% if result %}
-    <section class="results-section">
-      <h2>Results</h2>
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <div class="label">Pitch Time</div>
-          <div class="value">{{ "%.2f"|format(result.pitch_time) }}</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">UCL</div>
-          <div class="value">{{ "%.2f"|format(result.ucl) }}</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">LCL</div>
-          <div class="value">{{ "%.2f"|format(result.lcl) }}</div>
-        </div>
-        <div class="metric-card highlight">
-          <div class="label">Line Efficiency</div>
-          <div class="value">{{ "%.1f"|format(result.line_efficiency) }}%</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Total Workstations</div>
-          <div class="value">{{ result.total_workstations }}</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Total Manpower</div>
-          <div class="value">{{ result.total_manpower }}</div>
-        </div>
-      </div>
+        {% if result %}
+        <section class="results-section">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="label">Pitch Time</div>
+                    <div class="value">{{ "%.2f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">UCL</div>
+                    <div class="value">{{ "%.2f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">LCL</div>
+                    <div class="value">{{ "%.2f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                </div>
+                <div class="metric-card highlight">
+                    <div class="label">Efficiency</div>
+                    <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Workstations</div>
+                    <div class="value">{{ result.workstations|length }}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Total Manpower</div>
+                    <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
+                </div>
+            </div>
 
-      <div class="table-section">
-        <h3>Workstation Report</h3>
-        <div class="table-wrapper">
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Workstation</th>
-                  <th>Operations</th>
-                  <th>Combined Basic Time</th>
-                  <th>M/P</th>
-                  <th>Balancing SAM</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in rows %}
-                <tr>
-                  <td>{{ row['Workstation'] }}</td>
-                  <td>{{ row['Operations'] }}</td>
-                  <td>{{ row['Combined_Basic_Time'] }}</td>
-                  <td>{{ row['M/P'] }}</td>
-                  <td>{{ row['Balancing_SAM'] }}</td>
-                  <td>
-                    {% if row['Status'] == 'OK' %}
-                      <span class="status-ok">OK</span>
-                    {% elif '> UCL' in row['Status'] %}
-                      <span class="status-warn-high">{{ row['Status'] }}</span>
-                    {% elif '< LCL' in row['Status'] %}
-                      <span class="status-warn-low">{{ row['Status'] }}</span>
-                    {% else %}
-                      {{ row['Status'] }}
-                    {% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-    {% endif %}
-  </div>
+            <div class="table-section">
+                <h3>Workstation Report</h3>
+                <div class="table-wrapper">
+                    <div class="table-scroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Serial/Id</th>
+                                    <th>Workstation</th>
+                                    <th>Operations</th>
+                                    <th>Basic Time</th>
+                                    <th>Combined Basic Time</th>
+                                    <th>M/P</th>
+                                    <th>Balancing SAM</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in rows %}
+                                <tr>
+                                    <td>{{ row['Serial/Id'] }}</td>
+                                    <td>{{ row['Workstation'] }}</td>
+                                    <td>{{ row['Operations'] }}</td>
+                                    <td>{{ row['Basic Time'] }}</td>
+                                    <td>{{ row['Combined Basic Time'] }}</td>
+                                    <td>{{ row['M/P'] }}</td>
+                                    <td>{{ row['Balancing SAM'] }}</td>
+                                    <td>
+                                        {% if 'OK' in row['Status'] %}
+                                            <span class="status-badge status-ok">OK</span>
+                                        {% elif 'UCL' in row['Status'] %}
+                                            <span class="status-badge status-ucl">> UCL</span>
+                                        {% else %}
+                                            <span class="status-badge status-lcl">< LCL</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
 
-  <script>
-    (function () {
-      var html = document.documentElement;
-      var toggle = document.getElementById('themeToggle');
-      var label = toggle.querySelector('.toggle-label');
-      var saved = localStorage.getItem('lineBalancerTheme');
+            <div class="export-buttons">
+                <button onclick="exportFile('csv', '{{ session_id }}')">📥 Export CSV</button>
+                <button onclick="exportFile('xlsx', '{{ session_id }}')">📥 Export Excel</button>
+            </div>
+        </section>
+        {% endif %}
+    </div>
 
-      function applyTheme(theme) {
-        html.setAttribute('data-theme', theme);
-        label.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
-        localStorage.setItem('lineBalancerTheme', theme);
-      }
+    <script>
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+        }
 
-      if (saved === 'light' || saved === 'dark') {
-        applyTheme(saved);
-      }
+        // Restore theme on load
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+        });
 
-      toggle.addEventListener('click', function () {
-        var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-        applyTheme(next);
-      });
-    })();
-  </script>
+        // Export function
+        function exportFile(format, sessionId) {
+            window.location.href = `/api/export/${format}/${sessionId}`;
+        }
+    </script>
 </body>
 </html>
 """
 
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    result = None
-    rows = []
-    error = None
-    if request.method == "POST":
-        try:
-            uploaded_file = request.files.get("file")
-            total_ops = request.form.get("total_ops", "27")
-            tolerance = request.form.get("tolerance", "0.15")
-
-            if not uploaded_file or not uploaded_file.filename:
-                error = "Please select a valid CSV/XLSX file to upload."
-            else:
-                temp_dir = tempfile.mkdtemp(prefix="line_balancer_", dir=".")
-                temp_path = Path(temp_dir) / uploaded_file.filename
-                uploaded_file.save(temp_path)
-                workflow = run_workflow(
-                    input_path=str(temp_path),
-                    total_operation_count=int(total_ops) if total_ops else None,
-                    tolerance=float(tolerance) if tolerance else 0.15,
-                )
-                result = {
-                    "pitch_time": workflow["pitch_time"],
-                    "ucl": workflow["ucl"],
-                    "lcl": workflow["lcl"],
-                    "line_efficiency": workflow["line_efficiency"],
-                    "total_workstations": len(workflow["workstations"]),
-                    "total_manpower": sum(ws.manpower for ws in workflow["workstations"]),
-                }
-                rows = workflow["report_df"].to_dict("records")
-                app.config["LAST_RESULT"] = workflow
-                app.config["LAST_ROWS"] = rows
-        except BadRequest as exc:
-            error = "Upload failed: the submitted form was malformed or the file data could not be parsed."
-        except Exception as exc:
-            error = f"Processing failed: {exc}"
-
-    return render_template_string(HTML, result=result, rows=rows, error=error)
-
-
-@app.errorhandler(BadRequest)
-def handle_bad_request(exc):
-    error = (
-        "Upload failed: the submitted request could not be parsed. "
-        "Please verify the file is valid and that the form is submitted as multipart/form-data."
-    )
-    return render_template_string(HTML, result=None, rows=[], error=error), 400
-
-
-@app.route("/download")
-def download():
-    fmt = request.args.get("format", "csv").lower()
-    workflow = app.config.get("LAST_RESULT")
-    if not workflow:
-        return "No results available", 400
-
-    temp_dir = tempfile.mkdtemp(prefix="line_balancer_export_", dir=".")
-    out_path = Path(temp_dir) / f"report.{fmt if fmt in {'csv', 'xlsx'} else 'csv'}"
-    if fmt == "xlsx":
-        workflow["report_df"].to_excel(out_path, index=False)
-    else:
-        workflow["report_df"].to_csv(out_path, index=False)
-    return send_file(out_path, as_attachment=True, download_name=out_path.name)
-
+MONITOR_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line Monitor</title>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e8edf4;
+            --accent: #3b82f6;
+            --success: #22c55e;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 20px;
+        }
+        .monitor {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            color: var(--accent);
+        }
+        .status {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 40px;
+        }
+        .status p {
+            color: #8b9cb3;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="monitor">
+        <h1>📊 Line Monitoring</h1>
+        <div class="status">
+            <p>Floor monitoring view - real-time line efficiency metrics</p>
+            <p style="margin-top: 10px; font-size: 14px;">(Load a calculation from the main view to display metrics)</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=5000)

@@ -1,10 +1,10 @@
 """
-STEP 2 / HELPER ALGORITHM A: SORT_BY_PREDECESSOR
+STEP 2: Sequence Operations by Serial No. / ID (Ascending)
 
-Orders operations so that every operation appears after all of its
-predecessors (a topological sort over the precedence chain). Any
-operation whose predecessor never resolves (broken/circular chain,
-or a predecessor ID that doesn't exist) is flagged rather than dropped.
+This is simple: just sort operations by their ID from lowest to highest.
+The Predecessor field is NOT used for ordering here—it's only used later
+in the balancing step to enforce constraints (an operation cannot be
+combined in a way that violates its predecessor dependency).
 """
 
 from typing import List
@@ -15,32 +15,14 @@ else:
     from .models import Operation
 
 
-def sort_by_predecessor(operations: List[Operation]) -> List[Operation]:
-    visited: set = set()
-    sorted_list: List[Operation] = []
-
-    # Start with operations that have no predecessor
-    for op in operations:
-        if not op.predecessors:
-            sorted_list.append(op)
-            visited.add(op.op_id)
-
-    # Repeatedly add operations whose predecessors are all already placed
-    added_this_round = True
-    while added_this_round:
-        added_this_round = False
-        for op in operations:
-            if op.op_id in visited:
-                continue
-            if all(pred in visited for pred in op.predecessors):
-                sorted_list.append(op)
-                visited.add(op.op_id)
-                added_this_round = True
-
-    # Catch broken / circular / missing predecessor chains
-    for op in operations:
-        if op.op_id not in visited:
-            op.flagged = "Unresolved Predecessor"
-            sorted_list.append(op)
-
-    return sorted_list
+def sort_by_id(operations: List[Operation]) -> List[Operation]:
+    """
+    Sort all operations by Serial No. / ID in ascending order.
+    
+    Args:
+        operations: List of Operation objects
+    
+    Returns:
+        List of operations sorted by op_id (ascending)
+    """
+    return sorted(operations, key=lambda op: op.op_id)

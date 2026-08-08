@@ -1,4 +1,11 @@
-"""STEP 7: OUTPUT RESULTS - display and export the final workstation report."""
+"""
+STEP 7: Generate Output Report
+
+Creates a formatted report showing all workstations with:
+- Which operations are grouped together
+- The times, manpower, and efficiency metrics
+- Status flags for workstations outside acceptable ranges
+"""
 
 from typing import List
 
@@ -10,25 +17,76 @@ else:
     from .models import Operation, Workstation
 
 
+def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
+    """
+    Determine the status of a workstation based on its balancing SAM.
+    
+    Args:
+        balancing_sam: The balanced time per operator
+        ucl: Upper Control Limit
+        lcl: Lower Control Limit
+    
+    Returns:
+        Status string: "OK", "> UCL (review)", or "< LCL (review)"
+    """
+    if balancing_sam > ucl:
+        return "> UCL (review)"
+    elif balancing_sam < lcl:
+        return "< LCL (review)"
+    else:
+        return "OK"
+
+
 def build_report_dataframe(workstations: List[Workstation], ucl: float = None, lcl: float = None) -> pd.DataFrame:
+    """
+    Build a DataFrame report with all workstations and their details.
+    
+    The output format has these columns (in order):
+    1. Serial/Id - Operation IDs joined with " + " for combined (e.g., "5 + 9")
+    2. Workstation - Workstation number
+    3. Operations - Operation names joined with " + " for combined
+    4. Basic Time - Individual basic times joined with " + " for combined
+    5. Combined Basic Time - Total time for the workstation
+    6. M/P - Manpower needed
+    7. Balancing SAM - Time per operator after balancing
+    8. Status - OK / > UCL / < LCL
+    
+    Args:
+        workstations: List of Workstation objects
+        ucl: Upper Control Limit (optional, for status determination)
+        lcl: Lower Control Limit (optional, for status determination)
+    
+    Returns:
+        DataFrame with formatted report data
+    """
     rows = []
-    for i, ws in enumerate(workstations, start=1):
+    
+    for ws_num, ws in enumerate(workstations, start=1):
+        # Build combined representations using " + " as separator
+        op_ids = " + ".join(str(op.op_id) for op in ws.operations)
+        op_names = " + ".join(op.name for op in ws.operations)
+        basic_times = " + ".join(f"{op.basic_time:.2f}" for op in ws.operations)
+        
+        # Combined basic time (sum of all operations in this workstation)
+        combined_basic_time = ws.combined_basic_time
+        
+        # Determine status
         status = "OK"
         if ucl is not None and lcl is not None:
-            if ws.balancing_sam > ucl:
-                status = "> UCL (review)"
-            elif ws.balancing_sam < lcl:
-                status = "< LCL (review)"
-        rows.append(
-            {
-                "Workstation": i,
-                "Operations": ws.operation_names,
-                "Combined_Basic_Time": round(ws.combined_basic_time, 2),
-                "M/P": ws.manpower,
-                "Balancing_SAM": round(ws.balancing_sam, 2),
-                "Status": status,
-            }
-        )
+            status = determine_status(ws.balancing_sam, ucl, lcl)
+        
+        # Add row to report
+        rows.append({
+            "Serial/Id": op_ids,
+            "Workstation": ws_num,
+            "Operations": op_names,
+            "Basic Time": basic_times,
+            "Combined Basic Time": round(combined_basic_time, 2),
+            "M/P": ws.manpower,
+            "Balancing SAM": round(ws.balancing_sam, 2),
+            "Status": status,
+        })
+    
     return pd.DataFrame(rows)
 
 
@@ -40,21 +98,56 @@ def print_summary(
     line_efficiency: float,
     flagged_ops: List[Operation],
 ) -> None:
+    """
+    Print a summary of the balancing results to the console.
+    
+    Shows:
+    - The calculated metrics (Pitch Time, UCL, LCL)
+    - Summary counts (workstations, total manpower)
+    - Line efficiency
+    - Any flagged operations that had errors
+    
+    Args:
+        pitch_time: The calculated pitch time
+        ucl: Upper Control Limit
+        lcl: Lower Control Limit
+        workstations: List of balanced workstations
+        line_efficiency: Calculated efficiency percentage
+        flagged_ops: List of operations with errors
+    """
     df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl)
+    
+    print("\n" + "=" * 120)
+    print("LINE BALANCING RESULTS")
+    print("=" * 120)
     print(df.to_string(index=False))
-    print("-" * 90)
-    print(f"Pitch Time = {pitch_time:.2f}s | UCL = {ucl:.2f}s | LCL = {lcl:.2f}s")
-    print(f"Total Workstations = {len(workstations)} | Total Manpower = {sum(w.manpower for w in workstations)}")
-    print(f"Line Efficiency = {line_efficiency:.1f}%")
-
+    print("-" * 120)
+    print(f"Pitch Time:        {pitch_time:.2f}s")
+    print(f"Upper Limit (UCL): {ucl:.2f}s")
+    print(f"Lower Limit (LCL): {lcl:.2f}s")
+    print(f"Total Workstations: {len(workstations)}")
+    print(f"Total Manpower:     {sum(ws.manpower for ws in workstations)} operators")
+    print(f"Line Efficiency:    {line_efficiency:.1f}%")
+    print("=" * 120)
+    
+    # Show any flagged operations
     if flagged_ops:
-        print("\nFlagged operations:")
+        print("\n⚠️  FLAGGED OPERATIONS (please review):")
         for op in flagged_ops:
-            print(f"  - {op.name} (ID {op.op_id}): {op.flagged}")
+            print(f"  - Operation {op.op_id}: {op.name}")
+            print(f"    Error: {op.flagged}")
 
 
 def export_report(workstations: List[Workstation], filepath: str) -> None:
+    """
+    Export the report to a CSV or Excel file.
+    
+    Args:
+        workstations: List of Workstation objects
+        filepath: Where to save the file (must end in .csv or .xlsx)
+    """
     df = build_report_dataframe(workstations)
+    
     if filepath.lower().endswith(".xlsx"):
         df.to_excel(filepath, index=False)
     else:

@@ -16,14 +16,14 @@ if __package__ in {None, ""}:
     from metrics import calculate_line_efficiency, calculate_pitch_time, calculate_tolerance_bands
     from models import Workstation
     from report import build_report_dataframe, export_report, print_summary
-    from sequencing import sort_by_predecessor
+    from sequencing import sort_by_id
 else:
     from .balancing import group_and_balance
     from .io_utils import read_operations
     from .metrics import calculate_line_efficiency, calculate_pitch_time, calculate_tolerance_bands
     from .models import Workstation
     from .report import build_report_dataframe, export_report, print_summary
-    from .sequencing import sort_by_predecessor
+    from .sequencing import sort_by_id
 
 
 def resolve_input_path(input_path: Optional[str] = None) -> str:
@@ -42,23 +42,23 @@ def run_workflow(
 ) -> dict:
     resolved_input = resolve_input_path(input_path)
 
-    # STEP 1
+    # STEP 1: Read operations from file
     raw_operations = read_operations(resolved_input)
 
-    # STEP 2
-    sorted_operations = sort_by_predecessor(raw_operations)
+    # STEP 2: Sort operations by Serial No. / ID (ascending)
+    sorted_operations = sort_by_id(raw_operations)
 
-    # STEP 3 & 4
+    # STEP 3 & 4: Calculate Pitch Time and control limits
     pitch_time = calculate_pitch_time(sorted_operations, total_operation_count)
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
 
-    # STEP 5
+    # STEP 5: Balance operations into workstations
     workstations = group_and_balance(sorted_operations, ucl, lcl)
 
-    # STEP 6
+    # STEP 6: Calculate line efficiency
     line_efficiency = calculate_line_efficiency(sorted_operations, workstations, pitch_time)
 
-    # STEP 7
+    # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
     report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl)
 
