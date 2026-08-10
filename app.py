@@ -302,10 +302,59 @@ HTML_TEMPLATE = """
             gap: 20px;
         }
 
+        /* Navbar */
+        .navbar {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 8px;
+        }
+
+        .nav-link {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 500;
+            transition: all var(--transition);
+            border: 1px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .nav-link.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
         .header h1 {
             font-size: 28px;
             font-weight: 700;
             background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        [data-theme="light"] .header h1 {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -479,13 +528,24 @@ HTML_TEMPLATE = """
         }
 
         /* Table Section */
+        .table-section {
+            position: relative;
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
         .table-section h3 {
             font-size: 14px;
             font-weight: 600;
-            margin-bottom: 16px;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            margin: 0;
         }
 
         .table-wrapper {
@@ -504,26 +564,65 @@ HTML_TEMPLATE = """
             width: 100%;
             border-collapse: collapse;
             font-size: 13px;
+            table-layout: fixed;
         }
 
         th {
             background: var(--surface-2);
-            padding: 14px 16px;
-            font-size: 11px;
+            padding: 12px 6px;
+            font-size: 10px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.03em;
             color: var(--text-muted);
-            text-align: left;
+            text-align: center;
             border-bottom: 1px solid var(--border);
-            white-space: nowrap;
+            white-space: normal;
+            line-height: 1.3;
         }
 
+        th:nth-child(1) { width: 7%; }  /* Workstation */
+        th:nth-child(2) { width: 7%; }  /* Serial/Id */
+        th:nth-child(3) { width: 16%; } /* Operations */
+        th:nth-child(4) { width: 9%; }  /* Machine */
+        th:nth-child(5) { width: 9%; }  /* Predecessor */
+        th:nth-child(6) { width: 9%; }  /* Basic Time */
+        th:nth-child(7) { width: 11%; } /* Combined Basic Time */
+        th:nth-child(8) { width: 9%; }  /* Balancing SAM */
+        th:nth-child(9) { width: 6%; }  /* M/P */
+        th:nth-child(10) { width: 8%; } /* Pitch Time */
+        th:nth-child(11) { width: 8%; } /* UCL */
+        th:nth-child(12) { width: 8%; } /* LCL */
+        th:nth-child(13) { width: 10%; } /* Status */
+
         td {
-            padding: 14px 16px;
+            padding: 12px 8px;
             border-bottom: 1px solid var(--border);
             color: var(--text);
             font-variant-numeric: tabular-nums;
+            text-align: center;
+            vertical-align: middle;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+        }
+
+        /* Handle + values on new line */
+        td .multiline {
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        .smart-break-cell {
+            white-space: pre-wrap;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .normal-wrap {
+            white-space: normal;
+            word-wrap: break-word;
+            line-height: 1.4;
         }
 
         tbody tr:hover {
@@ -532,12 +631,14 @@ HTML_TEMPLATE = """
 
         .status-badge {
             display: inline-block;
-            padding: 4px 10px;
+            padding: 6px 12px;
             border-radius: 20px;
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.03em;
+            min-width: 60px;
+            white-space: nowrap;
         }
 
         .status-ok {
@@ -558,9 +659,7 @@ HTML_TEMPLATE = """
         /* Export Buttons */
         .export-buttons {
             display: flex;
-            gap: 12px;
-            margin-top: 24px;
-            flex-wrap: wrap;
+            gap: 8px;
         }
 
         .export-buttons button {
@@ -568,17 +667,25 @@ HTML_TEMPLATE = """
             color: var(--text);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            padding: 10px 20px;
-            font-size: 13px;
+            padding: 8px 16px;
+            font-size: 12px;
             font-weight: 500;
             cursor: pointer;
             transition: all var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
         .export-buttons button:hover {
             background: var(--accent);
             color: white;
             border-color: var(--accent);
+        }
+
+        .export-buttons button svg {
+            width: 14px;
+            height: 14px;
         }
 
         /* Results Section */
@@ -594,49 +701,196 @@ HTML_TEMPLATE = """
         @media (max-width: 768px) {
             .container {
                 padding: 16px 12px;
+                max-width: 100%;
             }
             
             .header {
                 flex-direction: column;
                 align-items: flex-start;
+                gap: 16px;
             }
 
             .header h1 {
-                font-size: 24px;
+                font-size: 20px;
+            }
+
+            .header p {
+                font-size: 12px;
+            }
+
+            .form-card {
+                padding: 20px;
             }
 
             .form-grid {
                 grid-template-columns: 1fr;
+                gap: 16px;
+            }
+
+            .field {
+                width: 100%;
+            }
+
+            .file-upload-field {
+                grid-column: span 1 !important;
             }
 
             .metrics-grid {
-                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
             }
 
-            table {
+            .metric-card {
+                padding: 16px;
+            }
+
+            .metric-card .value {
+                font-size: 20px;
+            }
+
+            .table-section h3 {
                 font-size: 12px;
             }
 
+            .table-wrapper {
+                border-radius: 8px;
+            }
+
+            .table-scroll {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table {
+                font-size: 11px;
+                min-width: 800px;
+            }
+
+            th {
+                padding: 10px 4px;
+                font-size: 9px;
+                line-height: 1.2;
+            }
+
+            td {
+                padding: 10px 4px;
+                font-size: 10px;
+            }
+
+            .status-badge {
+                padding: 4px 8px;
+                font-size: 10px;
+                min-width: 50px;
+            }
+
+            .export-buttons {
+                flex-direction: column;
+            }
+
+            .export-buttons button {
+                padding: 8px 12px;
+                font-size: 11px;
+            }
+
+            .table-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .navbar {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+            }
+
+            button[type="submit"] {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 12px 8px;
+            }
+
+            .header h1 {
+                font-size: 18px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-card {
+                padding: 16px;
+            }
+
             th, td {
+                padding: 8px 3px;
+            }
+
+            th {
+                font-size: 8px;
+                line-height: 1.1;
+            }
+
+            td {
+                font-size: 9px;
+            }
+
+            .status-badge {
+                padding: 3px 6px;
+                font-size: 9px;
+                min-width: 45px;
+            }
+
+            .navbar {
                 padding: 10px 12px;
+            }
+
+            .nav-link {
+                padding: 6px 12px;
+                font-size: 11px;
+            }
+
+            .export-buttons button {
+                padding: 6px 10px;
+                font-size: 10px;
+            }
+
+            .export-buttons button svg {
+                width: 12px;
+                height: 12px;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <nav class="navbar">
+            <div class="nav-links">
+                <a href="/" class="nav-link active">Home</a>
+                <a href="/monitor" class="nav-link">Monitor</a>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+        </nav>
+
         <div class="header">
             <div>
                 <h1>Line Balancing Optimizer</h1>
                 <p>Upload operation data and configure parameters to optimize workstation balance</p>
             </div>
-            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
         </div>
 
         <form method="post" enctype="multipart/form-data" class="form-card">
             <h2>Configuration</h2>
             <div class="form-grid">
-                <div class="field" style="grid-column: span 2;">
+                <div class="field file-upload-field">
                     <label>Upload CSV/XLSX file</label>
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
                 </div>
@@ -691,7 +945,23 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="table-section">
-                <h3>Workstation Report</h3>
+                <div class="table-header">
+                    <h3>Workstation Report</h3>
+                    <div class="export-buttons">
+                        <button onclick="exportFile('csv', '{{ session_id }}')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            CSV
+                        </button>
+                        <button onclick="exportFile('xlsx', '{{ session_id }}')">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Excel
+                        </button>
+                    </div>
+                </div>
                 <div class="table-wrapper">
                     <div class="table-scroll">
                         <table>
@@ -702,9 +972,9 @@ HTML_TEMPLATE = """
                                     <th>Operations</th>
                                     <th>Machine</th>
                                     <th>Predecessor</th>
-                                    <th>Basic Time</th>
-                                    <th>Combined Basic Time</th>
-                                    <th>Balancing SAM</th>
+                                    <th>Basic<br>Time</th>
+                                    <th>Combined Basic<br>Time</th>
+                                    <th>Balancing<br>SAM</th>
                                     <th>M/P</th>
                                     <th>Pitch Time</th>
                                     <th>UCL</th>
@@ -716,11 +986,11 @@ HTML_TEMPLATE = """
                                 {% for row in rows %}
                                 <tr>
                                     <td>{{ row['Workstation'] }}</td>
-                                    <td>{{ row['Serial/Id'] }}</td>
-                                    <td>{{ row['Operations'] }}</td>
-                                    <td>{{ row['Machine'] }}</td>
-                                    <td>{{ row['Predecessor'] }}</td>
-                                    <td>{{ row['Basic Time'] }}</td>
+                                    <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
+                                    <td class="smart-break-cell">{{ row['Operations'] }}</td>
+                                    <td class="smart-break-cell">{{ row['Machine'] }}</td>
+                                    <td class="normal-wrap">{{ row['Predecessor'] }}</td>
+                                    <td class="smart-break-cell">{{ row['Basic Time'] }}</td>
                                     <td>{{ row['Combined Basic Time'] }}</td>
                                     <td>{{ row['Balancing SAM'] }}</td>
                                     <td>{{ row['M/P'] }}</td>
@@ -743,11 +1013,6 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             </div>
-
-            <div class="export-buttons">
-                <button onclick="exportFile('csv', '{{ session_id }}')">📥 Export CSV</button>
-                <button onclick="exportFile('xlsx', '{{ session_id }}')">📥 Export Excel</button>
-            </div>
         </section>
         {% endif %}
     </div>
@@ -768,6 +1033,65 @@ HTML_TEMPLATE = """
             const savedTheme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);
             document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+
+            // Set active nav link based on current path
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === currentPath) {
+                    link.classList.add('active');
+                }
+            });
+
+            // Handle smart + breaking for specific columns (Serial/Id, Operations, Machine, Basic Time)
+            const smartBreakCells = document.querySelectorAll('.smart-break-cell');
+            smartBreakCells.forEach(cell => {
+                const text = cell.textContent;
+                if (text.includes('+')) {
+                    // Smart breaking: (a + b) + c breaks as (a + b) on line 1, + on line 2, c on line 3
+                    let result = '';
+                    let parenDepth = 0;
+                    let i = 0;
+                    let lastNonSpaceIndex = -1;
+                    
+                    while (i < text.length) {
+                        const char = text[i];
+                        
+                        if (char === '(') {
+                            parenDepth++;
+                            result += char;
+                        } else if (char === ')') {
+                            parenDepth--;
+                            result += char;
+                        } else if (char === '+' && parenDepth === 0) {
+                        // Only break if + is outside parentheses
+                        // Break before + if there's non-space content before it
+                        if (lastNonSpaceIndex >= 0) {
+                            // Remove trailing spaces from Line 1
+                            result = result.trimEnd();
+                            result += '<br>';
+                        }
+                        // Put + on its own line
+                        result += '+<br>';
+                        lastNonSpaceIndex = -1;
+                        
+                        // Skip any whitespace after the + (for Line 3)
+                        while (i + 1 < text.length && text[i + 1].trim() === '') {
+                            i++;
+                        }
+                    } else {
+                            result += char;
+                            if (char.trim() !== '') {
+                                lastNonSpaceIndex = i;
+                            }
+                        }
+                        i++;
+                    }
+                    
+                    cell.innerHTML = result;
+                }
+            });
         });
 
         // Export function
@@ -790,10 +1114,28 @@ MONITOR_TEMPLATE = """
         :root {
             --bg: #0f1419;
             --surface: #1a2332;
+            --surface-2: #242f3e;
             --border: rgba(255, 255, 255, 0.08);
             --text: #e8edf4;
+            --text-muted: #8b9cb3;
             --accent: #3b82f6;
             --success: #22c55e;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            --transition: all 0.2s ease;
+        }
+
+        [data-theme="light"] {
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --surface-2: #f1f5f9;
+            --border: rgba(0, 0, 0, 0.1);
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --success: #22c55e;
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -806,6 +1148,66 @@ MONITOR_TEMPLATE = """
             max-width: 1400px;
             margin: 0 auto;
         }
+        
+        /* Navbar */
+        .navbar {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 8px;
+        }
+
+        .nav-link {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 500;
+            transition: all var(--transition);
+            border: 1px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .nav-link.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .theme-toggle {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all var(--transition);
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
         h1 {
             font-size: 28px;
             margin-bottom: 20px;
@@ -823,16 +1225,69 @@ MONITOR_TEMPLATE = """
             color: #8b9cb3;
             font-size: 16px;
         }
+
+        @media (max-width: 768px) {
+            .navbar {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="monitor">
+        <nav class="navbar">
+            <div class="nav-links">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/monitor" class="nav-link active">Monitor</a>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+        </nav>
+
         <h1>📊 Line Monitoring</h1>
         <div class="status">
             <p>Floor monitoring view - real-time line balancing rate metrics</p>
             <p style="margin-top: 10px; font-size: 14px;">(Load a calculation from the main view to display metrics)</p>
         </div>
     </div>
+
+    <script>
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+        }
+
+        // Restore theme on load
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+
+            // Set active nav link based on current path
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === currentPath) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
 """
