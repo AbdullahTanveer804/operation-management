@@ -82,10 +82,10 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         for op in ws.operations:
             if op.predecessors:
                 # Sort and join this operation's predecessors with " + "
-                op_preds = " + ".join(str(p) for p in sorted(op.predecessors))
+                op_preds = ", ".join(str(p) for p in sorted(op.predecessors))
                 op_predecessor_groups.append(op_preds)
         # Join different operation predecessor groups with ", "
-        predecessors = ", ".join(op_predecessor_groups) if op_predecessor_groups else ""
+        predecessors = "+".join(op_predecessor_groups) if op_predecessor_groups else "-"
         
         # Combined basic time (sum of all operations in this workstation)
         combined_basic_time = ws.combined_basic_time

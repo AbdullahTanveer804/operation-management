@@ -619,12 +619,6 @@ HTML_TEMPLATE = """
             word-break: break-word;
         }
 
-        .normal-wrap {
-            white-space: normal;
-            word-wrap: break-word;
-            line-height: 1.4;
-        }
-
         tbody tr:hover {
             background: rgba(59, 130, 246, 0.06);
         }
@@ -989,7 +983,7 @@ HTML_TEMPLATE = """
                                     <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
                                     <td class="smart-break-cell">{{ row['Operations'] }}</td>
                                     <td class="smart-break-cell">{{ row['Machine'] }}</td>
-                                    <td class="normal-wrap">{{ row['Predecessor'] }}</td>
+                                    <td class="smart-break-cell">{{ row['Predecessor'] }}</td>
                                     <td class="smart-break-cell">{{ row['Basic Time'] }}</td>
                                     <td>{{ row['Combined Basic Time'] }}</td>
                                     <td>{{ row['Balancing SAM'] }}</td>
@@ -1044,7 +1038,7 @@ HTML_TEMPLATE = """
                 }
             });
 
-            // Handle smart + breaking for specific columns (Serial/Id, Operations, Machine, Basic Time)
+            // Handle smart + breaking for specific columns (Serial/Id, Operations, Machine, Predecessor, Basic Time)
             const smartBreakCells = document.querySelectorAll('.smart-break-cell');
             smartBreakCells.forEach(cell => {
                 const text = cell.textContent;
