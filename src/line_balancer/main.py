@@ -60,12 +60,12 @@ def run_workflow(
 
     # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
-    report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl)
+    report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
 
     print_summary(pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops)
 
     if export_path:
-        export_report(workstations, export_path)
+        export_report(workstations, export_path, pitch_time=pitch_time, ucl=ucl, lcl=lcl)
         print(f"\nReport exported to {export_path}")
 
     return {

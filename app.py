@@ -73,7 +73,7 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
     line_balancing_rate = calculate_line_balancing_rate(workstations)
     
     # Step 5: Build report
-    report_df = build_report_dataframe(workstations, ucl, lcl)
+    report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time)
     
     return {
         "operations": operations,
@@ -144,6 +144,13 @@ def index():
                             for row in rows:
                                 row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
                                 row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
+                                # Format new columns if they are numeric
+                                if row["Pitch Time"]:
+                                    row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
+                                if row["UCL"]:
+                                    row["UCL"] = f"{row['UCL']:.1f}"
+                                if row["LCL"]:
+                                    row["LCL"] = f"{row['LCL']:.1f}"
                             
                             # Generate session ID
                             session_id = generate_session_id()
@@ -635,11 +642,11 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="field">
                     <label>Total operation count</label>
-                    <input type="number" name="total_ops" value="" placeholder="24" min="1">
+                    <input type="number" name="total_ops" value="" placeholder="Enter Value" min="1">
                 </div>
                 <div class="field">
                     <label>Tolerance</label>
-                    <input type="number" name="tolerance" value="" placeholder="0.15" min="0" max="1" step="0.01">
+                    <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
                 </div>
                 <div class="field">
                     <label>&nbsp;</label>
@@ -693,10 +700,15 @@ HTML_TEMPLATE = """
                                     <th>Workstation</th>
                                     <th>Serial/Id</th>
                                     <th>Operations</th>
+                                    <th>Machine</th>
+                                    <th>Predecessor</th>
                                     <th>Basic Time</th>
                                     <th>Combined Basic Time</th>
-                                    <th>M/P</th>
                                     <th>Balancing SAM</th>
+                                    <th>M/P</th>
+                                    <th>Pitch Time</th>
+                                    <th>UCL</th>
+                                    <th>LCL</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
@@ -706,10 +718,15 @@ HTML_TEMPLATE = """
                                     <td>{{ row['Workstation'] }}</td>
                                     <td>{{ row['Serial/Id'] }}</td>
                                     <td>{{ row['Operations'] }}</td>
+                                    <td>{{ row['Machine'] }}</td>
+                                    <td>{{ row['Predecessor'] }}</td>
                                     <td>{{ row['Basic Time'] }}</td>
                                     <td>{{ row['Combined Basic Time'] }}</td>
-                                    <td>{{ row['M/P'] }}</td>
                                     <td>{{ row['Balancing SAM'] }}</td>
+                                    <td>{{ row['M/P'] }}</td>
+                                    <td>{{ row['Pitch Time'] }}</td>
+                                    <td>{{ row['UCL'] }}</td>
+                                    <td>{{ row['LCL'] }}</td>
                                     <td>
                                         {% if 'OK' in row['Status'] %}
                                             <span class="status-badge status-ok">OK</span>

@@ -37,7 +37,7 @@ def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
         return "OK"
 
 
-def build_report_dataframe(workstations: List[Workstation], ucl: float = None, lcl: float = None) -> pd.DataFrame:
+def build_report_dataframe(workstations: List[Workstation], ucl: float = None, lcl: float = None, pitch_time: float = None) -> pd.DataFrame:
     """
     Build a DataFrame report with all workstations and their details.
     
@@ -45,16 +45,22 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
     1. Workstation - Workstation number
     2. Serial/Id - Operation IDs joined with " + " for combined (e.g., "5 + 9")
     3. Operations - Operation names joined with " + " for combined
-    4. Basic Time - Individual basic times joined with " + " for combined
-    5. Combined Basic Time - Total time for the workstation
-    6. M/P - Manpower needed
-    7. Balancing SAM - Time per operator after balancing
-    8. Status - OK / > UCL / < LCL
+    4. Machine - Machine types joined with " + " for combined (e.g., "M1 + M2")
+    5. Predecessor - Predecessor IDs joined with " + " for combined (e.g., "1 + 18")
+    6. Basic Time - Individual basic times joined with " + " for combined
+    7. Pitch Time - Constant pitch time value (repeated for each row)
+    8. UCL - Constant Upper Control Limit value (repeated for each row)
+    9. LCL - Constant Lower Control Limit value (repeated for each row)
+    10. Combined Basic Time - Total time for the workstation
+    11. M/P - Manpower needed
+    12. Balancing SAM - Time per operator after balancing
+    13. Status - OK / > UCL / < LCL
     
     Args:
         workstations: List of Workstation objects
-        ucl: Upper Control Limit (optional, for status determination)
-        lcl: Lower Control Limit (optional, for status determination)
+        ucl: Upper Control Limit (optional, for status determination and column)
+        lcl: Lower Control Limit (optional, for status determination and column)
+        pitch_time: Pitch time (optional, for column)
     
     Returns:
         DataFrame with formatted report data
@@ -66,6 +72,20 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         op_ids = " + ".join(str(op.op_id) for op in ws.operations)
         op_names = " + ".join(op.name for op in ws.operations)
         basic_times = " + ".join(f"{op.basic_time:.1f}" for op in ws.operations)
+        
+        # Build combined machine types
+        machine_types = " + ".join(op.machine_type for op in ws.operations)
+        
+        # Build combined predecessors (collect all predecessors from all operations)
+        # Format: "1 + 18" for single op, or "19, 17 + 20" for multiple ops
+        op_predecessor_groups = []
+        for op in ws.operations:
+            if op.predecessors:
+                # Sort and join this operation's predecessors with " + "
+                op_preds = " + ".join(str(p) for p in sorted(op.predecessors))
+                op_predecessor_groups.append(op_preds)
+        # Join different operation predecessor groups with ", "
+        predecessors = ", ".join(op_predecessor_groups) if op_predecessor_groups else ""
         
         # Combined basic time (sum of all operations in this workstation)
         combined_basic_time = ws.combined_basic_time
@@ -80,10 +100,15 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
             "Workstation": ws_num,
             "Serial/Id": op_ids,
             "Operations": op_names,
+            "Machine": machine_types,
+            "Predecessor": predecessors,
             "Basic Time": basic_times,
             "Combined Basic Time": round(combined_basic_time, 1),
-            "M/P": ws.manpower,
             "Balancing SAM": round(ws.balancing_sam, 1),
+            "M/P": ws.manpower,
+            "Pitch Time": round(pitch_time, 1) if pitch_time is not None else "",
+            "UCL": round(ucl, 1) if ucl is not None else "",
+            "LCL": round(lcl, 1) if lcl is not None else "",
             "Status": status,
         })
     
@@ -115,7 +140,7 @@ def print_summary(
         line_balancing_rate: Calculated balancing rate percentage
         flagged_ops: List of operations with errors
     """
-    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl)
+    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
     
     print("\n" + "=" * 120)
     print("LINE BALANCING RESULTS")
@@ -138,15 +163,18 @@ def print_summary(
             print(f"    Error: {op.flagged}")
 
 
-def export_report(workstations: List[Workstation], filepath: str) -> None:
+def export_report(workstations: List[Workstation], filepath: str, pitch_time: float = None, ucl: float = None, lcl: float = None) -> None:
     """
     Export the report to a CSV or Excel file.
     
     Args:
         workstations: List of Workstation objects
         filepath: Where to save the file (must end in .csv or .xlsx)
+        pitch_time: Pitch time value (optional, for column)
+        ucl: Upper Control Limit (optional, for column)
+        lcl: Lower Control Limit (optional, for column)
     """
-    df = build_report_dataframe(workstations)
+    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
     
     if filepath.lower().endswith(".xlsx"):
         df.to_excel(filepath, index=False)

@@ -112,48 +112,37 @@ def find_best_manpower_split(time_value: float, ucl: float, lcl: float, max_oper
     
     LOGIC:
     - Start with M/P = 1 (time unchanged)
-    - If time is still outside [LCL, UCL], try M/P = 2 (time / 2), then 3, etc.
-    - Stop when time/M/P falls within [LCL, UCL]
-    - If nothing works perfectly, use the M/P that gets closest to the middle
-      of the acceptable band (Pitch Time)
+    - If time > UCL + 0.5, try M/P = 2 (time / 2), then 3, etc.
+    - Keep dividing until time/manpower <= UCL + 0.5
+    - Don't stop even if it goes below LCL - priority is staying at or below UCL + 0.5
+    - 0.5 second flexibility is allowed before increasing manpower
     
     Args:
         time_value: The time to split (basic time or combined time)
         ucl: Upper control limit
-        lcl: Lower control limit
+        lcl: Lower control limit (not used in current logic but kept for interface)
         max_operators: Maximum M/P to try
     
     Returns:
         (manpower, resulting_time_per_operator)
     """
-    # Calculate the middle of the acceptable band (Pitch Time)
-    pitch_time = (ucl + lcl) / 2
+    # Add 0.5 second flexibility to UCL
+    ucl_with_flexibility = ucl + 0.5
     
-    # Track the best option found
-    best_manpower = 1
-    best_time = time_value
-    best_distance_to_pitch = abs(time_value - pitch_time)
+    # If already at or below UCL + 0.5, no splitting needed
+    if time_value <= ucl_with_flexibility:
+        return 1, time_value
     
-    # Try increasing manpower from 2 onwards
+    # Keep increasing manpower until time/manpower <= UCL + 0.5
     for manpower in range(2, max_operators + 1):
         time_per_op = time_value / manpower
         
-
-        
-        distance_to_pitch = abs(time_per_op - pitch_time)
-        
-        # If this is better (closer to Pitch Time), use it
-        if distance_to_pitch < best_distance_to_pitch:
-            best_manpower = manpower
-            best_time = time_per_op
-            best_distance_to_pitch = distance_to_pitch
-        
-        # If we've already gone below Pitch Time and are moving further away,
-        # stop searching (it will only get worse)
-        elif time_per_op < pitch_time:
-            break
+        # Once we're at or below UCL + 0.5, return this split
+        if time_per_op <= ucl_with_flexibility:
+            return manpower, time_per_op
     
-    return best_manpower, best_time
+    # If we hit max_operators and still above UCL + 0.5, return the best we found
+    return max_operators, time_value / max_operators
 
 
 def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float) -> List[Workstation]:
