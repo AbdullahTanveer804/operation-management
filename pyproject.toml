@@ -1,7 +1,7 @@
 [project]
 name = "line-balancer"
 version = "0.1.0"
-description = "Line Balancing & Efficiency Optimizer for garment production lines"
+description = "Line Balancing Optimizer for garment production lines"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

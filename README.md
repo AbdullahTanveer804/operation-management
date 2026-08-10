@@ -2,7 +2,7 @@
 
 A Python implementation of your factory's manual line-balancing workflow:
 read operations -> sequence by predecessor -> calculate Pitch Time / UCL / LCL
--> group & balance into workstations -> report Line Efficiency.
+-> group & balance into workstations -> report Line Balancing Rate.
 
 ## Project Structure
 
@@ -14,7 +14,7 @@ line_balancer/
 │   ├── models.py                 # Operation, Workstation
 │   ├── io_utils.py                # STEP 1 - read/validate CSV or XLSX
 │   ├── sequencing.py              # STEP 2 - predecessor-based topological sort
-│   ├── metrics.py                 # STEP 3, 4, 6 - pitch time, UCL/LCL, efficiency
+│   ├── metrics.py                 # STEP 3, 4, 6 - pitch time, UCL/LCL, balancing rate
 │   ├── balancing.py               # STEP 5 - grouping & manpower splitting
 │   ├── report.py                  # STEP 7 - display & export report
 │   └── main.py                    # orchestrates the pipeline + CLI

@@ -13,14 +13,14 @@ from typing import List, Optional
 if __package__ in {None, ""}:
     from balancing import group_and_balance
     from io_utils import read_operations
-    from metrics import calculate_line_efficiency, calculate_pitch_time, calculate_tolerance_bands
+    from metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_tolerance_bands
     from models import Workstation
     from report import build_report_dataframe, export_report, print_summary
     from sequencing import sort_by_id
 else:
     from .balancing import group_and_balance
     from .io_utils import read_operations
-    from .metrics import calculate_line_efficiency, calculate_pitch_time, calculate_tolerance_bands
+    from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_tolerance_bands
     from .models import Workstation
     from .report import build_report_dataframe, export_report, print_summary
     from .sequencing import sort_by_id
@@ -55,14 +55,14 @@ def run_workflow(
     # STEP 5: Balance operations into workstations
     workstations = group_and_balance(sorted_operations, ucl, lcl)
 
-    # STEP 6: Calculate line efficiency
-    line_efficiency = calculate_line_efficiency(sorted_operations, workstations, pitch_time)
+    # STEP 6: Calculate line balancing rate
+    line_balancing_rate = calculate_line_balancing_rate(workstations)
 
     # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
     report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl)
 
-    print_summary(pitch_time, ucl, lcl, workstations, line_efficiency, flagged_ops)
+    print_summary(pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops)
 
     if export_path:
         export_report(workstations, export_path)
@@ -76,7 +76,7 @@ def run_workflow(
         "ucl": ucl,
         "lcl": lcl,
         "workstations": workstations,
-        "line_efficiency": line_efficiency,
+        "line_balancing_rate": line_balancing_rate,
         "flagged_ops": flagged_ops,
         "report_df": report_df,
     }

@@ -137,6 +137,9 @@ def find_best_manpower_split(time_value: float, ucl: float, lcl: float, max_oper
     # Try increasing manpower from 2 onwards
     for manpower in range(2, max_operators + 1):
         time_per_op = time_value / manpower
+        
+
+        
         distance_to_pitch = abs(time_per_op - pitch_time)
         
         # If this is better (closer to Pitch Time), use it

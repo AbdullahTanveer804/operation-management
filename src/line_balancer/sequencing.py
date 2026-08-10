@@ -8,6 +8,7 @@ combined in a way that violates its predecessor dependency).
 """
 
 from typing import List
+from collections import defaultdict, deque
 
 if __package__ in {None, ""}:
     from models import Operation

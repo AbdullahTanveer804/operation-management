@@ -3,7 +3,7 @@ STEP 7: Generate Output Report
 
 Creates a formatted report showing all workstations with:
 - Which operations are grouped together
-- The times, manpower, and efficiency metrics
+- The times, manpower, and balancing rate metrics
 - Status flags for workstations outside acceptable ranges
 """
 
@@ -42,8 +42,8 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
     Build a DataFrame report with all workstations and their details.
     
     The output format has these columns (in order):
-    1. Serial/Id - Operation IDs joined with " + " for combined (e.g., "5 + 9")
-    2. Workstation - Workstation number
+    1. Workstation - Workstation number
+    2. Serial/Id - Operation IDs joined with " + " for combined (e.g., "5 + 9")
     3. Operations - Operation names joined with " + " for combined
     4. Basic Time - Individual basic times joined with " + " for combined
     5. Combined Basic Time - Total time for the workstation
@@ -65,7 +65,7 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         # Build combined representations using " + " as separator
         op_ids = " + ".join(str(op.op_id) for op in ws.operations)
         op_names = " + ".join(op.name for op in ws.operations)
-        basic_times = " + ".join(f"{op.basic_time:.2f}" for op in ws.operations)
+        basic_times = " + ".join(f"{op.basic_time:.1f}" for op in ws.operations)
         
         # Combined basic time (sum of all operations in this workstation)
         combined_basic_time = ws.combined_basic_time
@@ -77,13 +77,13 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         
         # Add row to report
         rows.append({
-            "Serial/Id": op_ids,
             "Workstation": ws_num,
+            "Serial/Id": op_ids,
             "Operations": op_names,
             "Basic Time": basic_times,
-            "Combined Basic Time": round(combined_basic_time, 2),
+            "Combined Basic Time": round(combined_basic_time, 1),
             "M/P": ws.manpower,
-            "Balancing SAM": round(ws.balancing_sam, 2),
+            "Balancing SAM": round(ws.balancing_sam, 1),
             "Status": status,
         })
     
@@ -95,7 +95,7 @@ def print_summary(
     ucl: float,
     lcl: float,
     workstations: List[Workstation],
-    line_efficiency: float,
+    line_balancing_rate: float,
     flagged_ops: List[Operation],
 ) -> None:
     """
@@ -104,7 +104,7 @@ def print_summary(
     Shows:
     - The calculated metrics (Pitch Time, UCL, LCL)
     - Summary counts (workstations, total manpower)
-    - Line efficiency
+    - Line balancing rate
     - Any flagged operations that had errors
     
     Args:
@@ -112,7 +112,7 @@ def print_summary(
         ucl: Upper Control Limit
         lcl: Lower Control Limit
         workstations: List of balanced workstations
-        line_efficiency: Calculated efficiency percentage
+        line_balancing_rate: Calculated balancing rate percentage
         flagged_ops: List of operations with errors
     """
     df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl)
@@ -122,12 +122,12 @@ def print_summary(
     print("=" * 120)
     print(df.to_string(index=False))
     print("-" * 120)
-    print(f"Pitch Time:        {pitch_time:.2f}s")
-    print(f"Upper Limit (UCL): {ucl:.2f}s")
-    print(f"Lower Limit (LCL): {lcl:.2f}s")
+    print(f"Pitch Time:        {pitch_time:.1f}s")
+    print(f"Upper Limit (UCL): {ucl:.1f}s")
+    print(f"Lower Limit (LCL): {lcl:.1f}s")
     print(f"Total Workstations: {len(workstations)}")
     print(f"Total Manpower:     {sum(ws.manpower for ws in workstations)} operators")
-    print(f"Line Efficiency:    {line_efficiency:.1f}%")
+    print(f"Line Balancing Rate: {line_balancing_rate:.1f}%")
     print("=" * 120)
     
     # Show any flagged operations

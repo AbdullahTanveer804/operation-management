@@ -1,5 +1,5 @@
 """
-Line Balancing & Efficiency Tool - Modern Web Application
+Line Balancing Tool - Modern Web Application
 
 A professional Flask web app for:
 - IE departments (planning view): full features on desktop
@@ -21,7 +21,7 @@ from flask import Flask, jsonify, render_template_string, request, send_file
 from src.line_balancer.models import Operation, Workstation
 from src.line_balancer.io_utils import read_operations
 from src.line_balancer.sequencing import sort_by_id
-from src.line_balancer.metrics import calculate_pitch_time, calculate_tolerance_bands, calculate_line_efficiency
+from src.line_balancer.metrics import calculate_pitch_time, calculate_tolerance_bands, calculate_line_balancing_rate
 from src.line_balancer.balancing import group_and_balance
 from src.line_balancer.report import build_report_dataframe, determine_status
 
@@ -69,8 +69,8 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
     # Step 3: Balance operations into workstations
     workstations = group_and_balance(sorted_ops, ucl, lcl)
     
-    # Step 4: Calculate line efficiency
-    line_efficiency = calculate_line_efficiency(sorted_ops, workstations, pitch_time)
+    # Step 4: Calculate line balancing rate
+    line_balancing_rate = calculate_line_balancing_rate(workstations)
     
     # Step 5: Build report
     report_df = build_report_dataframe(workstations, ucl, lcl)
@@ -82,7 +82,7 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
         "ucl": ucl,
         "lcl": lcl,
         "workstations": workstations,
-        "line_efficiency": line_efficiency,
+        "line_balancing_rate": line_balancing_rate,
         "report_df": report_df,
         "total_ops": total_ops or len(operations),
         "tolerance": tolerance,
@@ -142,8 +142,8 @@ def index():
                             
                             # Format numeric values
                             for row in rows:
-                                row["Combined Basic Time"] = f"{row['Combined Basic Time']:.2f}"
-                                row["Balancing SAM"] = f"{row['Balancing SAM']:.2f}"
+                                row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
+                                row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
                             
                             # Generate session ID
                             session_id = generate_session_id()
@@ -635,11 +635,11 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="field">
                     <label>Total operation count</label>
-                    <input type="number" name="total_ops" value="27" min="1">
+                    <input type="number" name="total_ops" value="" placeholder="24" min="1">
                 </div>
                 <div class="field">
                     <label>Tolerance</label>
-                    <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
+                    <input type="number" name="tolerance" value="" placeholder="0.15" min="0" max="1" step="0.01">
                 </div>
                 <div class="field">
                     <label>&nbsp;</label>
@@ -659,19 +659,19 @@ HTML_TEMPLATE = """
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="label">Pitch Time</div>
-                    <div class="value">{{ "%.2f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                    <div class="value">{{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card">
                     <div class="label">UCL</div>
-                    <div class="value">{{ "%.2f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                    <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card">
                     <div class="label">LCL</div>
-                    <div class="value">{{ "%.2f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                    <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card highlight">
-                    <div class="label">Efficiency</div>
-                    <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                    <div class="label">BALANCING RATE</div>
+                    <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
                 <div class="metric-card">
                     <div class="label">Workstations</div>
@@ -690,8 +690,8 @@ HTML_TEMPLATE = """
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Serial/Id</th>
                                     <th>Workstation</th>
+                                    <th>Serial/Id</th>
                                     <th>Operations</th>
                                     <th>Basic Time</th>
                                     <th>Combined Basic Time</th>
@@ -703,8 +703,8 @@ HTML_TEMPLATE = """
                             <tbody>
                                 {% for row in rows %}
                                 <tr>
-                                    <td>{{ row['Serial/Id'] }}</td>
                                     <td>{{ row['Workstation'] }}</td>
+                                    <td>{{ row['Serial/Id'] }}</td>
                                     <td>{{ row['Operations'] }}</td>
                                     <td>{{ row['Basic Time'] }}</td>
                                     <td>{{ row['Combined Basic Time'] }}</td>
@@ -812,7 +812,7 @@ MONITOR_TEMPLATE = """
     <div class="monitor">
         <h1>📊 Line Monitoring</h1>
         <div class="status">
-            <p>Floor monitoring view - real-time line efficiency metrics</p>
+            <p>Floor monitoring view - real-time line balancing rate metrics</p>
             <p style="margin-top: 10px; font-size: 14px;">(Load a calculation from the main view to display metrics)</p>
         </div>
     </div>
