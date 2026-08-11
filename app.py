@@ -223,10 +223,41 @@ def recalculate():
     return jsonify({"status": "ok", "result": calc})
 
 
+@app.route("/api/chart-data/<session_id>")
+def get_chart_data(session_id: str):
+    """Get chart data for the monitoring view."""
+    calc = get_calculation(session_id)
+    if not calc:
+        return jsonify({"error": "Session not found"}), 404
+    
+    # Extract workstation data
+    workstations = calc["workstations"]
+    pitch_time = calc["pitch_time"]
+    ucl = calc["ucl"]
+    lcl = calc["lcl"]
+    
+    # Prepare data for chart
+    chart_data = {
+        "workstations": [f"WS {i+1}" for i in range(len(workstations))],
+        "balancing_sam": [ws.balancing_sam for ws in workstations],
+        "pitch_time": pitch_time,
+        "ucl": ucl,
+        "lcl": lcl,
+        "line_balancing_rate": calc["line_balancing_rate"]
+    }
+    
+    return jsonify(chart_data)
+
+
 @app.route("/monitor")
-def monitor():
+@app.route("/monitor/<session_id>")
+def monitor(session_id: str = None):
     """Floor monitoring view (simplified, responsive)."""
-    return render_template_string(MONITOR_TEMPLATE)
+    calc = None
+    if session_id:
+        calc = get_calculation(session_id)
+    
+    return render_template_string(MONITOR_TEMPLATE, session_id=session_id, has_data=calc is not None)
 
 
 # ============== HTML TEMPLATES ==============
@@ -682,6 +713,23 @@ HTML_TEMPLATE = """
             height: 14px;
         }
 
+        .export-buttons .monitor-btn {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            text-decoration: none;
+        }
+
+        .export-buttons .monitor-btn:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        .export-buttons .monitor-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
         /* Results Section */
         .results-section {
             animation: fadeIn 0.4s ease;
@@ -869,7 +917,7 @@ HTML_TEMPLATE = """
         <nav class="navbar">
             <div class="nav-links">
                 <a href="/" class="nav-link active">Home</a>
-                <a href="/monitor" class="nav-link">Monitor</a>
+                <a href="/monitor{% if session_id %}/{{ session_id }}{% endif %}" class="nav-link">Monitor</a>
             </div>
             <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
         </nav>
@@ -942,6 +990,12 @@ HTML_TEMPLATE = """
                 <div class="table-header">
                     <h3>Workstation Report</h3>
                     <div class="export-buttons">
+                        <a href="/monitor/{{ session_id }}" class="nav-link monitor-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            Monitor
+                        </a>
                         <button onclick="exportFile('csv', '{{ session_id }}')">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1104,45 +1158,62 @@ MONITOR_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Line Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
         :root {
             --bg: #0f1419;
             --surface: #1a2332;
-            --surface-2: #242f3e;
+            --surface-2: #243044;
             --border: rgba(255, 255, 255, 0.08);
             --text: #e8edf4;
             --text-muted: #8b9cb3;
             --accent: #3b82f6;
+            --accent-hover: #2563eb;
             --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
             --radius: 12px;
             --radius-sm: 8px;
-            --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            --transition: all 0.2s ease;
+            --transition: 0.2s ease;
         }
 
         [data-theme="light"] {
-            --bg: #f8fafc;
+            --bg: #f1f5f9;
             --surface: #ffffff;
-            --surface-2: #f1f5f9;
-            --border: rgba(0, 0, 0, 0.1);
-            --text: #1e293b;
+            --surface-2: #f8fafc;
+            --border: rgba(15, 23, 42, 0.1);
+            --text: #0f172a;
             --text-muted: #64748b;
-            --accent: #3b82f6;
-            --success: #22c55e;
-            --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+
         body {
-            font-family: system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
-            padding: 20px;
+            line-height: 1.6;
+            transition: background var(--transition), color var(--transition);
         }
-        .monitor {
+
+        .container {
             max-width: 1400px;
             margin: 0 auto;
+            padding: 32px 24px;
         }
-        
+
         /* Navbar */
         .navbar {
             background: var(--surface);
@@ -1202,22 +1273,130 @@ MONITOR_TEMPLATE = """
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
         }
 
-        h1 {
-            font-size: 28px;
+        /* Chart Section */
+        .chart-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .chart-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chart-title svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .chart-button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-button:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .chart-button svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+
+        /* Metrics Section */
+        .metrics-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+
+        .metric-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
             color: var(--accent);
         }
+
+        .metric-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Status Section */
         .status {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: var(--radius);
             padding: 20px;
             text-align: center;
             margin-top: 40px;
         }
+
         .status p {
-            color: #8b9cb3;
+            color: var(--text-muted);
             font-size: 16px;
+        }
+
+        .status-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .status-link:hover {
+            text-decoration: underline;
         }
 
         @media (max-width: 768px) {
@@ -1231,27 +1410,82 @@ MONITOR_TEMPLATE = """
                 justify-content: center;
             }
 
-            h1 {
-                font-size: 24px;
+            .chart-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .chart-container {
+                height: 300px;
+            }
+
+            .metrics-section {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
-    <div class="monitor">
+    <div class="container">
         <nav class="navbar">
             <div class="nav-links">
                 <a href="/" class="nav-link">Home</a>
-                <a href="/monitor" class="nav-link active">Monitor</a>
+                <a href="/monitor{% if session_id %}/{{ session_id }}{% endif %}" class="nav-link active">Monitor</a>
             </div>
             <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
         </nav>
 
-        <h1>📊 Line Monitoring</h1>
-        <div class="status">
-            <p>Floor monitoring view - real-time line balancing rate metrics</p>
-            <p style="margin-top: 10px; font-size: 14px;">(Load a calculation from the main view to display metrics)</p>
+        {% if has_data %}
+        <div class="chart-section">
+            <div class="chart-header">
+                <div class="chart-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Line Balancing Chart
+                </div>
+                <button class="chart-button" onclick="goBack()">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Back to Home
+                </button>
+            </div>
+            <div class="chart-container">
+                <canvas id="balanceChart"></canvas>
+            </div>
         </div>
+
+        <div class="metrics-section">
+            <div class="metric-card">
+                <div class="metric-label">Line Balancing Rate</div>
+                <div class="metric-value" id="lbrValue">--%</div>
+                <div class="metric-sub">Efficiency metric</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Pitch Time</div>
+                <div class="metric-value" id="pitchValue">--s</div>
+                <div class="metric-sub">Target time per workstation</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">UCL</div>
+                <div class="metric-value" id="uclValue" style="color: var(--danger)">--s</div>
+                <div class="metric-sub">Upper Control Limit</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">LCL</div>
+                <div class="metric-value" id="lclValue" style="color: var(--warning)">--s</div>
+                <div class="metric-sub">Lower Control Limit</div>
+            </div>
+        </div>
+        {% else %}
+        <div class="status">
+            <p>Floor monitoring view - real-time line balancing visualization</p>
+            <p style="margin-top: 10px; font-size: 14px;">
+                <a href="/" class="status-link">Load a calculation from the main view</a> to display the chart
+            </p>
+        </div>
+        {% endif %}
     </div>
 
     <script>
@@ -1280,7 +1514,194 @@ MONITOR_TEMPLATE = """
                     link.classList.add('active');
                 }
             });
+
+            // Load chart if session_id is available
+            {% if session_id %}
+            loadChart('{{ session_id }}');
+            {% endif %}
         });
+
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        async function loadChart(sessionId) {
+            try {
+                const response = await fetch(`/api/chart-data/${sessionId}`);
+                if (!response.ok) {
+                    throw new Error('Failed to load chart data');
+                }
+                
+                const data = await response.json();
+                
+                // Update metrics
+                document.getElementById('lbrValue').textContent = data.line_balancing_rate.toFixed(1) + '%';
+                document.getElementById('pitchValue').textContent = data.pitch_time.toFixed(1) + 's';
+                document.getElementById('uclValue').textContent = data.ucl.toFixed(1) + 's';
+                document.getElementById('lclValue').textContent = data.lcl.toFixed(1) + 's';
+                
+                // Create chart
+                createChart(data);
+            } catch (error) {
+                console.error('Error loading chart:', error);
+            }
+        }
+
+        function createChart(chartData) {
+            const ctx = document.getElementById('balanceChart').getContext('2d');
+            
+            // Get theme colors
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const textColor = isDark ? '#e8edf4' : '#0f172a';
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.workstations,
+                    datasets: [{
+                        label: 'Balancing SAM',
+                        data: chartData.balancing_sam,
+                        backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: textColor,
+                                font: {
+                                    size: 13,
+                                    weight: 500
+                                }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: isDark ? '#1a2332' : '#ffffff',
+                            titleColor: textColor,
+                            bodyColor: textColor,
+                            borderColor: gridColor,
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: true,
+                            callbacks: {
+                                label: function(context) {
+                                    return `Balancing SAM: ${context.raw.toFixed(1)}s`;
+                                }
+                            }
+                        },
+                        annotation: {
+                            annotations: {
+                                uclLine: {
+                                    type: 'line',
+                                    yMin: chartData.ucl,
+                                    yMax: chartData.ucl,
+                                    borderColor: 'rgb(239, 68, 68)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: 'UCL',
+                                        position: 'end',
+                                        backgroundColor: 'rgb(239, 68, 68)',
+                                        color: 'white',
+                                        font: {
+                                            size: 11,
+                                            weight: 'bold'
+                                        },
+                                        padding: 6
+                                    }
+                                },
+                                pitchLine: {
+                                    type: 'line',
+                                    yMin: chartData.pitch_time,
+                                    yMax: chartData.pitch_time,
+                                    borderColor: 'rgb(34, 197, 94)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: 'Pitch Time',
+                                        position: 'end',
+                                        backgroundColor: 'rgb(34, 197, 94)',
+                                        color: 'white',
+                                        font: {
+                                            size: 11,
+                                            weight: 'bold'
+                                        },
+                                        padding: 6
+                                    }
+                                },
+                                lclLine: {
+                                    type: 'line',
+                                    yMin: chartData.lcl,
+                                    yMax: chartData.lcl,
+                                    borderColor: 'rgb(249, 115, 22)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: 'LCL',
+                                        position: 'end',
+                                        backgroundColor: 'rgb(249, 115, 22)',
+                                        color: 'white',
+                                        font: {
+                                            size: 11,
+                                            weight: 'bold'
+                                        },
+                                        padding: 6
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: gridColor
+                            },
+                            ticks: {
+                                color: textColor,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: gridColor
+                            },
+                            ticks: {
+                                color: textColor,
+                                font: {
+                                    size: 12
+                                },
+                                callback: function(value) {
+                                    return value.toFixed(1) + 's';
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time (seconds)',
+                                color: textColor,
+                                font: {
+                                    size: 13,
+                                    weight: 500
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
     </script>
 </body>
 </html>
