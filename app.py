@@ -40,14 +40,17 @@ def generate_session_id():
 def store_calculation(session_id: str, data: Dict):
     """Store calculation results in session."""
     SESSIONS[session_id] = data
+    print(f"Stored calculation for session {session_id}. Total sessions: {len(SESSIONS)}")
 
 
 def get_calculation(session_id: str) -> Optional[Dict]:
     """Retrieve calculation results from session."""
-    return SESSIONS.get(session_id)
+    result = SESSIONS.get(session_id)
+    print(f"Retrieved calculation for session {session_id}: {result is not None}")
+    return result
 
 
-def calculate_balance(operations: List[Operation], total_ops: Optional[int] = None, tolerance: float = 0.15) -> Dict:
+def calculate_balance(operations: List[Operation], total_ops: Optional[int] = None, tolerance: float = 0.15, manual_pitch_time: Optional[float] = None) -> Dict:
     """
     Run the complete balancing calculation and return all results.
     
@@ -55,6 +58,7 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
         operations: List of Operation objects from CSV/Excel
         total_ops: Total operation count (for Pitch Time calculation)
         tolerance: UCL/LCL tolerance (default 15%)
+        manual_pitch_time: Optional manual pitch time override
     
     Returns:
         Dictionary with all calculation results
@@ -62,8 +66,16 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
     # Step 1: Sort operations by ID
     sorted_ops = sort_by_id(operations)
     
-    # Step 2: Calculate Pitch Time and control limits
-    pitch_time = calculate_pitch_time(sorted_ops, total_ops)
+    # Step 2: Calculate or use manual Pitch Time and control limits
+    if manual_pitch_time is not None:
+        if manual_pitch_time <= 0:
+            raise ValueError("Manual pitch time must be a positive number.")
+        pitch_time = manual_pitch_time
+        pitch_time_source = "manual"
+    else:
+        pitch_time = calculate_pitch_time(sorted_ops, total_ops)
+        pitch_time_source = "calculated"
+    
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
     
     # Step 3: Balance operations into workstations
@@ -79,6 +91,7 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
         "operations": operations,
         "sorted_operations": sorted_ops,
         "pitch_time": pitch_time,
+        "pitch_time_source": pitch_time_source,
         "ucl": ucl,
         "lcl": lcl,
         "workstations": workstations,
@@ -104,6 +117,7 @@ def index():
             # Get file and parameters
             file = request.files.get("file")
             total_ops_str = request.form.get("total_ops", "")
+            pitch_time_str = request.form.get("pitch_time", "")
             tolerance_str = request.form.get("tolerance", "0.15")
             
             if not file or file.filename == "":
@@ -111,58 +125,63 @@ def index():
             else:
                 # Parse parameters
                 total_ops = int(total_ops_str) if total_ops_str else None
+                manual_pitch_time = float(pitch_time_str) if pitch_time_str else None
                 tolerance = float(tolerance_str)
                 
-                # Read operations from file
-                filepath = Path(file.filename)
-                if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
-                    error = "File must be CSV or Excel (.xlsx, .xls)."
+                # Validate manual pitch time if provided
+                if manual_pitch_time is not None and manual_pitch_time <= 0:
+                    error = "Manual pitch time must be a positive number."
                 else:
-                    # Save temporarily and read
-                    temp_path = None
-                    try:
-                        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix=Path(file.filename).suffix) as tmp:
-                            file.save(tmp.name)
-                            temp_path = tmp.name
+                    # Read operations from file
+                    filepath = Path(file.filename)
+                    if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+                        error = "File must be CSV or Excel (.xlsx, .xls)."
+                    else:
+                        # Save temporarily and read
+                        temp_path = None
+                        try:
+                            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix=Path(file.filename).suffix) as tmp:
+                                file.save(tmp.name)
+                                temp_path = tmp.name
+                            
+                            operations = read_operations(temp_path)
+                            
+                            # Check for errors in operations
+                            flagged = [op for op in operations if op.flagged]
+                            if flagged:
+                                error_list = "<br>".join([f"Op {op.op_id}: {op.flagged}" for op in flagged])
+                                error = f"File has validation errors:<br>{error_list}"
+                            else:
+                                # Run calculation
+                                result = calculate_balance(operations, total_ops, tolerance, manual_pitch_time)
+                                
+                                # Convert dataframe to list of dicts for template
+                                df = result["report_df"]
+                                rows = df.to_dict("records")
+                                
+                                # Format numeric values
+                                for row in rows:
+                                    row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
+                                    row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
+                                    # Format new columns if they are numeric
+                                    if row["Pitch Time"]:
+                                        row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
+                                    if row["UCL"]:
+                                        row["UCL"] = f"{row['UCL']:.1f}"
+                                    if row["LCL"]:
+                                        row["LCL"] = f"{row['LCL']:.1f}"
+                                
+                                # Generate session ID
+                                session_id = generate_session_id()
+                                store_calculation(session_id, result)
                         
-                        operations = read_operations(temp_path)
-                        
-                        # Check for errors in operations
-                        flagged = [op for op in operations if op.flagged]
-                        if flagged:
-                            error_list = "<br>".join([f"Op {op.op_id}: {op.flagged}" for op in flagged])
-                            error = f"File has validation errors:<br>{error_list}"
-                        else:
-                            # Run calculation
-                            result = calculate_balance(operations, total_ops, tolerance)
-                            
-                            # Convert dataframe to list of dicts for template
-                            df = result["report_df"]
-                            rows = df.to_dict("records")
-                            
-                            # Format numeric values
-                            for row in rows:
-                                row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
-                                row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
-                                # Format new columns if they are numeric
-                                if row["Pitch Time"]:
-                                    row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
-                                if row["UCL"]:
-                                    row["UCL"] = f"{row['UCL']:.1f}"
-                                if row["LCL"]:
-                                    row["LCL"] = f"{row['LCL']:.1f}"
-                            
-                            # Generate session ID
-                            session_id = generate_session_id()
-                            store_calculation(session_id, result)
-                    
-                    finally:
-                        # Clean up temp file
-                        if temp_path and os.path.exists(temp_path):
-                            try:
-                                os.remove(temp_path)
-                            except:
-                                pass
+                        finally:
+                            # Clean up temp file
+                            if temp_path and os.path.exists(temp_path):
+                                try:
+                                    os.remove(temp_path)
+                                except:
+                                    pass
         
         except Exception as e:
             error = f"Error processing file: {str(e)}"
@@ -209,26 +228,59 @@ def export(format: str, session_id: str):
 
 @app.route("/api/recalculate", methods=["POST"])
 def recalculate():
-    """Recalculate with manual overrides."""
+    """Recalculate with manual overrides including pitch time."""
     data = request.json
     session_id = data.get("session_id")
+    manual_pitch_time = data.get("pitch_time")
     
     calc = get_calculation(session_id)
     if not calc:
         return jsonify({"error": "Session not found"}), 404
     
-    # TODO: Implement manual override logic here
-    # For now, just return the same calculation
+    # Validate manual pitch time if provided
+    if manual_pitch_time is not None:
+        try:
+            manual_pitch_time = float(manual_pitch_time)
+            if manual_pitch_time <= 0:
+                return jsonify({"error": "Manual pitch time must be a positive number."}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid pitch time value."}), 400
     
-    return jsonify({"status": "ok", "result": calc})
+    # Recalculate with new pitch time if provided
+    try:
+        operations = calc["operations"]
+        total_ops = calc.get("total_ops")
+        tolerance = calc.get("tolerance", 0.15)
+        
+        result = calculate_balance(operations, total_ops, tolerance, manual_pitch_time)
+        
+        # Update session with new calculation
+        store_calculation(session_id, result)
+        
+        return jsonify({
+            "status": "ok", 
+            "result": {
+                "pitch_time": result["pitch_time"],
+                "pitch_time_source": result["pitch_time_source"],
+                "ucl": result["ucl"],
+                "lcl": result["lcl"],
+                "line_balancing_rate": result["line_balancing_rate"],
+                "workstations_count": len(result["workstations"])
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": f"Recalculation failed: {str(e)}"}), 500
 
 
 @app.route("/api/chart-data/<session_id>")
 def get_chart_data(session_id: str):
     """Get chart data for the monitoring view."""
+    print(f"API request for session: {session_id}")
+    print(f"Available sessions: {list(SESSIONS.keys())}")
+    
     calc = get_calculation(session_id)
     if not calc:
-        return jsonify({"error": "Session not found"}), 404
+        return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
     
     # Extract workstation data
     workstations = calc["workstations"]
@@ -236,11 +288,18 @@ def get_chart_data(session_id: str):
     ucl = calc["ucl"]
     lcl = calc["lcl"]
     
-    # Prepare data for chart
+    # Prepare data for chart with operation names for each workstation
+    workstation_names = []
+    for ws in workstations:
+        # Join operation names with " + " for each workstation
+        op_names = " + ".join(op.name for op in ws.operations)
+        workstation_names.append(op_names)
+    
     chart_data = {
-        "workstations": [f"WS {i+1}" for i in range(len(workstations))],
+        "workstations": workstation_names,
         "balancing_sam": [ws.balancing_sam for ws in workstations],
         "pitch_time": pitch_time,
+        "pitch_time_source": calc.get("pitch_time_source", "calculated"),
         "ucl": ucl,
         "lcl": lcl,
         "line_balancing_rate": calc["line_balancing_rate"]
@@ -549,6 +608,33 @@ HTML_TEMPLATE = """
 
         .metric-card .value {
             font-size: 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pitch-source-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .pitch-source-badge.manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .pitch-source-badge.auto {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
             font-weight: 700;
             font-variant-numeric: tabular-nums;
             color: var(--text);
@@ -941,6 +1027,10 @@ HTML_TEMPLATE = """
                     <input type="number" name="total_ops" value="" placeholder="Enter Value" min="1">
                 </div>
                 <div class="field">
+                    <label>Pitch Time (optional)</label>
+                    <input type="number" name="pitch_time" value="" placeholder="Auto-calculate if empty" min="0" step="0.1">
+                </div>
+                <div class="field">
                     <label>Tolerance</label>
                     <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
                 </div>
@@ -962,7 +1052,14 @@ HTML_TEMPLATE = """
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="label">Pitch Time</div>
-                    <div class="value">{{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                    <div class="value">
+                        {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
+                        {% if result.pitch_time_source == "manual" %}
+                        <span class="pitch-source-badge manual">Manual</span>
+                        {% else %}
+                        <span class="pitch-source-badge auto">Auto</span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="metric-card">
                     <div class="label">UCL</div>
@@ -1335,6 +1432,14 @@ MONITOR_TEMPLATE = """
             position: relative;
             height: 400px;
             width: 100%;
+            background: var(--surface);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+        }
+
+        .chart-container canvas {
+            background: var(--surface);
+            border-radius: var(--radius-sm);
         }
 
         /* Metrics Section */
@@ -1343,6 +1448,11 @@ MONITOR_TEMPLATE = """
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 16px;
             margin-bottom: 24px;
+        }
+
+        .chart-buttons {
+            display: flex;
+            gap: 8px;
         }
 
         .metric-card {
@@ -1366,6 +1476,10 @@ MONITOR_TEMPLATE = """
             font-size: 28px;
             font-weight: 700;
             color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .metric-sub {
@@ -1436,26 +1550,6 @@ MONITOR_TEMPLATE = """
         </nav>
 
         {% if has_data %}
-        <div class="chart-section">
-            <div class="chart-header">
-                <div class="chart-title">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                    Line Balancing Chart
-                </div>
-                <button class="chart-button" onclick="goBack()">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                    </svg>
-                    Back to Home
-                </button>
-            </div>
-            <div class="chart-container">
-                <canvas id="balanceChart"></canvas>
-            </div>
-        </div>
-
         <div class="metrics-section">
             <div class="metric-card">
                 <div class="metric-label">Line Balancing Rate</div>
@@ -1464,7 +1558,10 @@ MONITOR_TEMPLATE = """
             </div>
             <div class="metric-card">
                 <div class="metric-label">Pitch Time</div>
-                <div class="metric-value" id="pitchValue">--s</div>
+                <div class="metric-value">
+                    <span id="pitchValue">--s</span>
+                    <span id="pitchSourceBadge" class="pitch-source-badge auto">Auto</span>
+                </div>
                 <div class="metric-sub">Target time per workstation</div>
             </div>
             <div class="metric-card">
@@ -1476,6 +1573,34 @@ MONITOR_TEMPLATE = """
                 <div class="metric-label">LCL</div>
                 <div class="metric-value" id="lclValue" style="color: var(--warning)">--s</div>
                 <div class="metric-sub">Lower Control Limit</div>
+            </div>
+        </div>
+
+        <div class="chart-section">
+            <div class="chart-header">
+                <div class="chart-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Line Balancing Chart
+                </div>
+                <div class="chart-buttons">
+                    <button class="chart-button" onclick="saveChart()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Save Chart
+                    </button>
+                    <button class="chart-button" onclick="goBack()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to Home
+                    </button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="balanceChart"></canvas>
             </div>
         </div>
         {% else %}
@@ -1497,6 +1622,26 @@ MONITOR_TEMPLATE = """
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
             document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+            
+            // Update chart colors if chart exists
+            if (window.balanceChartInstance) {
+                const isDark = newTheme === 'dark';
+                const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
+                const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+                
+                window.balanceChartInstance.options.plugins.legend.labels.color = textColor;
+                window.balanceChartInstance.options.plugins.tooltip.backgroundColor = '#1a2332'; // Always dark background
+                window.balanceChartInstance.options.plugins.tooltip.titleColor = '#ffffff'; // Always white in tooltip
+                window.balanceChartInstance.options.plugins.tooltip.bodyColor = '#ffffff'; // Always white in tooltip
+                window.balanceChartInstance.options.plugins.tooltip.borderColor = gridColor;
+                window.balanceChartInstance.options.scales.x.ticks.color = textColor;
+                window.balanceChartInstance.options.scales.x.grid.color = gridColor;
+                window.balanceChartInstance.options.scales.y.ticks.color = textColor;
+                window.balanceChartInstance.options.scales.y.grid.color = gridColor;
+                window.balanceChartInstance.options.scales.y.title.color = textColor;
+                
+                window.balanceChartInstance.update();
+            }
         }
 
         // Restore theme on load
@@ -1525,11 +1670,74 @@ MONITOR_TEMPLATE = """
             window.location.href = '/';
         }
 
+        function saveChart() {
+            if (!window.balanceChartInstance) {
+                alert('Chart not loaded yet');
+                return;
+            }
+            
+            // Save current colors
+            const originalColors = {
+                textColor: window.balanceChartInstance.options.scales.x.ticks.color,
+                legendColor: window.balanceChartInstance.options.plugins.legend.labels.color,
+                yTitleColor: window.balanceChartInstance.options.scales.y.title.color,
+                yTicksColor: window.balanceChartInstance.options.scales.y.ticks.color,
+                gridColor: window.balanceChartInstance.options.scales.x.grid.color
+            };
+            
+            // Set light mode colors with grey text for export
+            window.balanceChartInstance.options.scales.x.ticks.color = '#64748b';
+            window.balanceChartInstance.options.plugins.legend.labels.color = '#64748b';
+            window.balanceChartInstance.options.scales.y.title.color = '#64748b';
+            window.balanceChartInstance.options.scales.y.ticks.color = '#64748b';
+            window.balanceChartInstance.options.scales.x.grid.color = 'rgba(0, 0, 0, 0.1)';
+            window.balanceChartInstance.options.scales.y.grid.color = 'rgba(0, 0, 0, 0.1)';
+            
+            // Save current background color
+            const canvas = document.getElementById('balanceChart');
+            const originalBg = canvas.style.background;
+            
+            // Set white background for export
+            canvas.style.background = '#ffffff';
+            
+            // Force update
+            window.balanceChartInstance.update();
+            
+            // Small delay to ensure rendering is complete
+            setTimeout(() => {
+                const link = document.createElement('a');
+                link.download = 'line-balancing-chart.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                
+                // Restore original colors
+                window.balanceChartInstance.options.scales.x.ticks.color = originalColors.textColor;
+                window.balanceChartInstance.options.plugins.legend.labels.color = originalColors.legendColor;
+                window.balanceChartInstance.options.scales.y.title.color = originalColors.yTitleColor;
+                window.balanceChartInstance.options.scales.y.ticks.color = originalColors.yTicksColor;
+                window.balanceChartInstance.options.scales.x.grid.color = originalColors.gridColor;
+                window.balanceChartInstance.options.scales.y.grid.color = originalColors.gridColor;
+                
+                // Restore original background
+                canvas.style.background = originalBg;
+                
+                // Force update to restore
+                window.balanceChartInstance.update();
+            }, 100);
+        }
+
         async function loadChart(sessionId) {
             try {
                 const response = await fetch(`/api/chart-data/${sessionId}`);
                 if (!response.ok) {
-                    throw new Error('Failed to load chart data');
+                    const errorData = await response.json();
+                    if (response.status === 404) {
+                        // Session expired, redirect to home with message
+                        alert(errorData.message || 'Session expired. Please reload the data.');
+                        window.location.href = '/';
+                        return;
+                    }
+                    throw new Error(errorData.error || 'Failed to load chart data');
                 }
                 
                 const data = await response.json();
@@ -1537,6 +1745,14 @@ MONITOR_TEMPLATE = """
                 // Update metrics
                 document.getElementById('lbrValue').textContent = data.line_balancing_rate.toFixed(1) + '%';
                 document.getElementById('pitchValue').textContent = data.pitch_time.toFixed(1) + 's';
+                
+                // Update pitch time source indicator
+                const pitchSourceBadge = document.getElementById('pitchSourceBadge');
+                if (pitchSourceBadge) {
+                    pitchSourceBadge.textContent = data.pitch_time_source === 'manual' ? 'Manual' : 'Auto';
+                    pitchSourceBadge.className = 'pitch-source-badge ' + (data.pitch_time_source === 'manual' ? 'manual' : 'auto');
+                }
+                
                 document.getElementById('uclValue').textContent = data.ucl.toFixed(1) + 's';
                 document.getElementById('lclValue').textContent = data.lcl.toFixed(1) + 's';
                 
@@ -1544,18 +1760,20 @@ MONITOR_TEMPLATE = """
                 createChart(data);
             } catch (error) {
                 console.error('Error loading chart:', error);
+                alert('Error loading chart data: ' + error.message);
+                window.location.href = '/';
             }
         }
 
         function createChart(chartData) {
             const ctx = document.getElementById('balanceChart').getContext('2d');
             
-            // Get theme colors
+            // Get theme colors - grey text for light mode, white for dark mode
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-            const textColor = isDark ? '#e8edf4' : '#0f172a';
+            const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             
-            new Chart(ctx, {
+            window.balanceChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: chartData.workstations,
@@ -1584,14 +1802,25 @@ MONITOR_TEMPLATE = """
                             }
                         },
                         tooltip: {
-                            backgroundColor: isDark ? '#1a2332' : '#ffffff',
-                            titleColor: textColor,
-                            bodyColor: textColor,
+                            backgroundColor: '#1a2332', // Always dark background for tooltip
+                            titleColor: '#ffffff', // Always white in tooltip
+                            bodyColor: '#ffffff', // Always white in tooltip
                             borderColor: gridColor,
                             borderWidth: 1,
                             padding: 12,
                             displayColors: true,
+                            titleFont: {
+                                size: 11,
+                                weight: 'bold'
+                            },
+                            bodyFont: {
+                                size: 12
+                            },
                             callbacks: {
+                                title: function(context) {
+                                    // Show full operation name in tooltip
+                                    return context[0].label;
+                                },
                                 label: function(context) {
                                     return `Balancing SAM: ${context.raw.toFixed(1)}s`;
                                 }
@@ -1670,7 +1899,19 @@ MONITOR_TEMPLATE = """
                             ticks: {
                                 color: textColor,
                                 font: {
-                                    size: 12
+                                    size: 9
+                                },
+                                // Show all labels without skipping
+                                autoSkip: false,
+                                maxRotation: 45,
+                                minRotation: 45,
+                                callback: function(value, index, values) {
+                                    const label = this.getLabelForValue(value);
+                                    // Truncate very long labels for display
+                                    if (label.length > 25) {
+                                        return label.substring(0, 25) + '...';
+                                    }
+                                    return label;
                                 }
                             }
                         },
