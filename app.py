@@ -50,13 +50,12 @@ def get_calculation(session_id: str) -> Optional[Dict]:
     return result
 
 
-def calculate_balance(operations: List[Operation], total_ops: Optional[int] = None, tolerance: float = 0.15, manual_pitch_time: Optional[float] = None) -> Dict:
+def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manual_pitch_time: Optional[float] = None) -> Dict:
     """
     Run the complete balancing calculation and return all results.
     
     Args:
         operations: List of Operation objects from CSV/Excel
-        total_ops: Total operation count (for Pitch Time calculation)
         tolerance: UCL/LCL tolerance (default 15%)
         manual_pitch_time: Optional manual pitch time override
     
@@ -73,7 +72,7 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
     else:
-        pitch_time = calculate_pitch_time(sorted_ops, total_ops)
+        pitch_time = calculate_pitch_time(sorted_ops)
         pitch_time_source = "calculated"
     
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
@@ -97,7 +96,6 @@ def calculate_balance(operations: List[Operation], total_ops: Optional[int] = No
         "workstations": workstations,
         "line_balancing_rate": line_balancing_rate,
         "report_df": report_df,
-        "total_ops": total_ops or len(operations),
         "tolerance": tolerance,
     }
 
@@ -116,7 +114,6 @@ def index():
         try:
             # Get file and parameters
             file = request.files.get("file")
-            total_ops_str = request.form.get("total_ops", "")
             pitch_time_str = request.form.get("pitch_time", "")
             tolerance_str = request.form.get("tolerance", "0.15")
             
@@ -124,7 +121,6 @@ def index():
                 error = "Please select a file to upload."
             else:
                 # Parse parameters
-                total_ops = int(total_ops_str) if total_ops_str else None
                 manual_pitch_time = float(pitch_time_str) if pitch_time_str else None
                 tolerance = float(tolerance_str)
                 
@@ -153,7 +149,7 @@ def index():
                                 error = f"File has validation errors:<br>{error_list}"
                             else:
                                 # Run calculation
-                                result = calculate_balance(operations, total_ops, tolerance, manual_pitch_time)
+                                result = calculate_balance(operations, tolerance, manual_pitch_time)
                                 
                                 # Convert dataframe to list of dicts for template
                                 df = result["report_df"]
@@ -249,10 +245,9 @@ def recalculate():
     # Recalculate with new pitch time if provided
     try:
         operations = calc["operations"]
-        total_ops = calc.get("total_ops")
         tolerance = calc.get("tolerance", 0.15)
         
-        result = calculate_balance(operations, total_ops, tolerance, manual_pitch_time)
+        result = calculate_balance(operations, tolerance, manual_pitch_time)
         
         # Update session with new calculation
         store_calculation(session_id, result)
@@ -1021,10 +1016,6 @@ HTML_TEMPLATE = """
                 <div class="field file-upload-field">
                     <label>Upload CSV/XLSX file</label>
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
-                </div>
-                <div class="field">
-                    <label>Total operation count</label>
-                    <input type="number" name="total_ops" value="" placeholder="Enter Value" min="1">
                 </div>
                 <div class="field">
                     <label>Pitch Time (optional)</label>

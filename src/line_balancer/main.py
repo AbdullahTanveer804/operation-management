@@ -3,7 +3,7 @@ Line Balancing Optimizer - main entry point.
 Runs STEP 1 through STEP 7 of the workflow end to end.
 
 Usage:
-    python -m line_balancer.main data/sample_operations.csv --total-ops 27 --export report.csv
+    python -m line_balancer.main data/sample_operations.csv --export report.csv
 """
 
 import argparse
@@ -36,7 +36,6 @@ def resolve_input_path(input_path: Optional[str] = None) -> str:
 
 def run_workflow(
     input_path: Optional[str] = None,
-    total_operation_count: Optional[int] = None,
     tolerance: float = 0.15,
     export_path: Optional[str] = None,
 ) -> dict:
@@ -49,7 +48,7 @@ def run_workflow(
     sorted_operations = sort_by_id(raw_operations)
 
     # STEP 3 & 4: Calculate Pitch Time and control limits
-    pitch_time = calculate_pitch_time(sorted_operations, total_operation_count)
+    pitch_time = calculate_pitch_time(sorted_operations)
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
 
     # STEP 5: Balance operations into workstations
@@ -84,13 +83,11 @@ def run_workflow(
 
 def run(
     input_path: Optional[str] = None,
-    total_operation_count: Optional[int] = None,
     tolerance: float = 0.15,
     export_path: Optional[str] = None,
 ) -> List[Workstation]:
     result = run_workflow(
         input_path=input_path,
-        total_operation_count=total_operation_count,
         tolerance=tolerance,
         export_path=export_path,
     )
@@ -100,19 +97,12 @@ def run(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Line Balancing Optimizer")
     parser.add_argument("input", nargs="?", default=None, help="Path to CSV/XLSX with operation data")
-    parser.add_argument(
-        "--total-ops",
-        type=int,
-        default=None,
-        help="Total operation count including any not listed in the file (e.g. non-stitching ops)",
-    )
     parser.add_argument("--tolerance", type=float, default=0.15, help="UCL/LCL tolerance, default 0.15 (15%%)")
     parser.add_argument("--export", type=str, default=None, help="Export report to a CSV or XLSX path")
     args = parser.parse_args()
 
     run_workflow(
         input_path=args.input,
-        total_operation_count=args.total_ops,
         tolerance=args.tolerance,
         export_path=args.export,
     )

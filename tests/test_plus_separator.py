@@ -18,7 +18,6 @@ def test_flask_ui():
     with open(SAMPLE_FILE, 'rb') as f:
         files = {'file': f}
         data = {
-            'total_ops': '24',
             'tolerance': '0.15'
         }
         
@@ -48,7 +47,6 @@ def test_csv_export():
     with open(SAMPLE_FILE, 'rb') as f:
         files = {'file': f}
         data = {
-            'total_ops': '24',
             'tolerance': '0.15'
         }
         
@@ -98,7 +96,6 @@ def test_excel_export():
     with open(SAMPLE_FILE, 'rb') as f:
         files = {'file': f}
         data = {
-            'total_ops': '24',
             'tolerance': '0.15'
         }
         

@@ -4,7 +4,7 @@ STEP 4: CALCULATE TOLERANCE BANDS (UCL / LCL)
 STEP 6: CALCULATE LINE BALANCING RATE
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 if __package__ in {None, ""}:
     from models import Operation, Workstation
@@ -14,16 +14,14 @@ else:
 DEFAULT_TOLERANCE = 0.15  # 15%, matches factory standard
 
 
-def calculate_pitch_time(operations: List[Operation], total_operation_count: Optional[int] = None) -> float:
+def calculate_pitch_time(operations: List[Operation]) -> float:
     """
     Pitch_Time = Total_Basic_Time / Total_Operation_Count
-
-    total_operation_count lets you match the factory's real convention of
-    dividing by ALL operations (including any not present in this file,
-    e.g. non-stitching ones) rather than just len(operations).
+    
+    Calculates pitch time based on operations from the input file.
     """
     total_basic_time = sum(op.basic_time for op in operations)
-    count = total_operation_count or len(operations)
+    count = len(operations)
     if count == 0:
         raise ValueError("Total operation count cannot be zero.")
     return total_basic_time / count

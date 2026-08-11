@@ -16,7 +16,6 @@ print("1. Uploading sample file...")
 with open(SAMPLE_FILE, 'rb') as f:
     files = {'file': f}
     data = {
-        'total_ops': '24',
         'tolerance': '0.15'
     }
     

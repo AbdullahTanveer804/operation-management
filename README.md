@@ -48,10 +48,9 @@ line_balancer/
 ## Running it
 
 ```bash
-python -m line_balancer.main data/sample_operations.csv --total-ops 27 --export data/report.csv
+python -m line_balancer.main data/sample_operations.csv --export data/report.csv
 ```
 
-- `--total-ops 27` — matches your factory's convention of dividing by the true total operation count, even if this file only lists 24 stitching operations.
 - `--tolerance 0.15` — UCL/LCL band width (defaults to 15%).
 - `--export` — optional, writes the workstation report to CSV or XLSX.
 
