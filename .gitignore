@@ -17,10 +17,8 @@ venv/
 
 # Excel files
 *.xlsx
-!data/*.xlsx
 
 # CSV files
 *.csv
-!data/*.csv
 
 line_balancer_test.py
