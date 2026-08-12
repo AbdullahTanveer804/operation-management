@@ -1,5 +1,5 @@
 from line_balancer.models import Operation
-from line_balancer.balancing import group_and_balance, is_within_range
+from line_balancer.balancing import group_and_balance, is_within_range, can_combine_machine_types
 
 
 def test_is_within_range():
@@ -65,3 +65,37 @@ def test_within_flexibility_range_no_split():
     assert manpower == 1, f"Expected manpower == 1 (no split), got {manpower}"
     # Should return original time unchanged
     assert abs(balancing_sam - 32.4) < 0.01, f"Expected balancing_sam ≈ 32.4, got {balancing_sam}"
+
+
+def test_helper_machine_combination_rules():
+    """Test helper-machine combination validation logic"""
+    
+    # Same machine types can always combine
+    assert can_combine_machine_types("M1", "M1") is True
+    assert can_combine_machine_types("By Hand", "By Hand") is True
+    assert can_combine_machine_types("Press", "Press") is True
+    
+    # Helper-machines can combine with each other
+    assert can_combine_machine_types("By Hand", "Pointer") is True
+    assert can_combine_machine_types("Pencil", "Clipper") is True
+    assert can_combine_machine_types("By Hand", "Press") is True
+    
+    # Helper-machines can combine with regular machine types
+    assert can_combine_machine_types("By Hand", "M1") is True
+    assert can_combine_machine_types("Pointer", "M2") is True
+    assert can_combine_machine_types("M1", "Pencil") is True
+    
+    # Press can ONLY combine with helper-machines, not regular machines
+    assert can_combine_machine_types("Press", "M1") is False
+    assert can_combine_machine_types("M1", "Press") is False
+    assert can_combine_machine_types("Press", "Sewing Machine") is False
+    
+    # Press can combine with other helper-machines
+    assert can_combine_machine_types("Press", "By Hand") is True
+    assert can_combine_machine_types("Press", "Pointer") is True
+    assert can_combine_machine_types("Press", "Pencil") is True
+    assert can_combine_machine_types("Press", "Clipper") is True
+    
+    # Regular machine types can only combine with identical types
+    assert can_combine_machine_types("M1", "M2") is False
+    assert can_combine_machine_types("Sewing Machine", "Overlock") is False

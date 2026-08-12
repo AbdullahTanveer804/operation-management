@@ -9,7 +9,10 @@ For each operation in ID order:
    - If NO: Continue to step 2
 
 2. Look for another operation to combine with:
-   - Must use the same machine type
+   - Must use compatible machine types (helper-machine rules apply)
+     * Helper-machines (By Hand, Pointer, Pencil, Clipper, Press) can combine with any machine type
+     * Press can ONLY combine with helper-machines, never with regular machine types
+     * Regular machine types can only combine with identical types (unless one is a helper-machine)
    - Both operations' predecessor requirements must be satisfied
    - If found: Combine their times and check the sum
      - If sum is acceptable: Use M/P = 1, Balancing SAM = sum
@@ -29,9 +32,54 @@ else:
     from .models import Operation, Workstation
 
 
+# Helper-machines: special categories that can combine with any machine type
+HELPER_MACHINES = {"By Hand", "Pointer", "Pencil", "Clipper", "Press"}
+
+
 def is_within_range(time: float, ucl: float, lcl: float) -> bool:
     """Check if a time value falls within the acceptable band [LCL, UCL]."""
     return lcl <= time <= ucl
+
+
+def can_combine_machine_types(machine_type1: str, machine_type2: str) -> bool:
+    """
+    Check if two machine types can be combined based on helper-machine rules.
+    
+    Rules:
+    - Helper-machines (By Hand, Pointer, Pencil, Clipper, Press) can combine with any machine type
+    - Helper-machines can combine with other helper-machines
+    - Press can ONLY combine with helper-machines, never with regular machine types
+    - Regular machine types can only combine with identical types (unless one is a helper-machine)
+    
+    Args:
+        machine_type1: First machine type
+        machine_type2: Second machine type
+    
+    Returns:
+        True if the machine types can be combined, False otherwise
+    """
+    # If both are the same machine type, they can always combine
+    if machine_type1 == machine_type2:
+        return True
+    
+    # Check if either is a helper-machine
+    is_helper1 = machine_type1 in HELPER_MACHINES
+    is_helper2 = machine_type2 in HELPER_MACHINES
+    
+    # If both are helper-machines, they can combine
+    if is_helper1 and is_helper2:
+        return True
+    
+    # If one is a helper-machine and the other is not
+    if is_helper1 or is_helper2:
+        # Press has special restriction: can ONLY combine with helper-machines
+        if machine_type1 == "Press" or machine_type2 == "Press":
+            # Press can only combine if the OTHER is also a helper-machine
+            return is_helper1 and is_helper2  # Both must be helpers
+        return True
+    
+    # Both are regular machine types but different - cannot combine
+    return False
 
 
 def check_predecessor_constraint(op1: Operation, op2: Operation, already_grouped_ids: set) -> bool:
@@ -72,7 +120,7 @@ def find_compatible_operations(
     Find all operations that could be combined with current_op.
     
     Compatibility rules:
-    - Same machine type
+    - Machine types must be compatible (helper-machine rules apply)
     - Not already grouped
     - Predecessor constraints satisfied
     
@@ -95,8 +143,8 @@ def find_compatible_operations(
         if other_op.op_id in already_grouped_ids:
             continue
         
-        # Must have same machine type
-        if other_op.machine_type != current_op.machine_type:
+        # Must have compatible machine types (helper-machine rules)
+        if not can_combine_machine_types(current_op.machine_type, other_op.machine_type):
             continue
         
         # Must satisfy predecessor constraints
