@@ -35,7 +35,7 @@ else:
 
 # Column name mappings (we accept several variations of the expected headers)
 COLUMN_MAPPINGS = {
-    "op_id": ["Serial No.", "Serial/Id", "Serial No", "Id", "Operation ID", "Seq"],
+    "op_id": ["Serial No.", "Serial/Id", "Serial No", "Id", "Operation ID", "Seq", "Sr", "Sr."],
     "name": ["Operation", "Operations", "Operation name", "Name", "Label"],
     "predecessor": ["Predecessor", "Pred", "Depends On", "Previous"],
     "machine_type": ["Machine Type", "Machine", "Equipment Type"],

@@ -1065,7 +1065,7 @@ HTML_TEMPLATE = """
                     <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Workstations</div>
+                    <div class="label">Composite Operatoins</div>
                     <div class="value">{{ result.workstations|length }}</div>
                 </div>
                 <div class="metric-card">
