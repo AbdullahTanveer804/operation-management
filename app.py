@@ -16,7 +16,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib
 from flask import Flask, jsonify, render_template_string, request, send_file
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from src.line_balancer.models import Operation, Workstation
 from src.line_balancer.io_utils import read_operations
@@ -98,6 +104,84 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "report_df": report_df,
         "tolerance": tolerance,
     }
+
+
+def generate_chart_image(workstations, pitch_time, ucl, lcl) -> io.BytesIO:
+    """
+    Generate a bar chart image using matplotlib that matches the client-side Chart.js styling.
+    
+    Args:
+        workstations: List of Workstation objects
+        pitch_time: Target pitch time
+        ucl: Upper control limit
+        lcl: Lower control limit
+    
+    Returns:
+        BytesIO object containing the PNG image
+    """
+    # Use non-interactive backend to avoid display issues
+    matplotlib.use('Agg')
+    
+    # Prepare data
+    workstation_names = []
+    balancing_sam = []
+    
+    for ws in workstations:
+        # Join operation names with " + " for each workstation
+        op_names = " + ".join(op.name for op in ws.operations)
+        workstation_names.append(op_names)
+        balancing_sam.append(ws.balancing_sam)
+    
+    # Create figure with appropriate size
+    fig, ax = plt.subplots(figsize=(18, 9))
+    
+    # Create bar chart with blue color matching Chart.js
+    bars = ax.bar(range(len(workstation_names)), balancing_sam, 
+                  color=(59/255, 130/255, 246/255, 0.8), 
+                  edgecolor=(59/255, 130/255, 246/255, 1.0),
+                  linewidth=1,
+                  width=0.6)
+    
+    # Add reference lines
+    ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2, label='UCL')
+    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2, label='Pitch Time')
+    ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2, label='LCL')
+    
+    # Set labels and title
+    ax.set_xlabel('Workstations', fontsize=12, fontweight='500')
+    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500')
+    ax.set_title('Line Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
+    
+    # Set x-axis ticks to workstation names
+    ax.set_xticks(range(len(workstation_names)))
+    ax.set_xticklabels(workstation_names, rotation=45, ha='right', fontsize=9)
+    
+    # Format y-axis labels
+    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10)
+    
+    # Add legend
+    ax.legend(loc='upper right', fontsize=10)
+    
+    # Add grid for better readability
+    ax.grid(axis='y', alpha=0.1, linestyle='-')
+    ax.grid(axis='x', alpha=0.1, linestyle='-')
+    
+    # Set background color to white for Excel export
+    ax.set_facecolor('white')
+    fig.patch.set_facecolor('white')
+    
+    # Adjust layout to prevent label cutoff
+    plt.tight_layout()
+    
+    # Save to BytesIO
+    img_buffer = io.BytesIO()
+    plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+    img_buffer.seek(0)
+    
+    # Close the figure to free memory
+    plt.close(fig)
+    
+    return img_buffer
 
 
 # ============== ROUTES ==============
@@ -209,9 +293,87 @@ def export(format: str, session_id: str):
             download_name=f"line_balance_{session_id}.csv"
         )
     elif format == "xlsx":
+        # Generate chart image
+        chart_img = generate_chart_image(
+            calc["workstations"],
+            calc["pitch_time"],
+            calc["ucl"],
+            calc["lcl"]
+        )
+        
+        # Create Excel workbook with openpyxl
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Line Balance Report"
+        
+        # Add title and metrics
+        ws['A1'] = "Line Balancing Report"
+        ws['A1'].font = Font(size=16, bold=True, color="3B82F6")
+        ws['A1'].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.merge_cells('A1:M1')
+        
+        # Add metrics below title
+        ws['A2'] = f"Pitch Time: {calc['pitch_time']:.1f}s"
+        ws['A2'].font = Font(bold=True)
+        
+        ws['A3'] = f"UCL: {calc['ucl']:.1f}s"
+        ws['A3'].font = Font(bold=True)
+        
+        ws['A4'] = f"LCL: {calc['lcl']:.1f}s"
+        ws['A4'].font = Font(bold=True)
+        
+        ws['C2'] = f"Line Balancing Rate: {calc['line_balancing_rate']:.1f}%"
+        ws['C2'].font = Font(bold=True)
+        
+        # Add data table starting from row 5
+        start_row = 5
+        
+        # Write headers
+        headers = list(df.columns)
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=start_row, column=col_idx, value=header)
+            cell.font = Font(bold=True, size=11)
+            cell.fill = PatternFill(start_color="E8EDF4", end_color="E8EDF4", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        # Write data
+        for row_idx, row in enumerate(df.itertuples(index=False), start_row + 1):
+            for col_idx, value in enumerate(row, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                
+                # Format numeric values - but keep workstation identifiers as whole numbers
+                if isinstance(value, (int, float)):
+                    if headers[col_idx - 1] == 'Workstation' or isinstance(value, int):
+                        cell.number_format = '0'  # No decimal for workstation identifiers and integers
+                    else:
+                        cell.number_format = '0.1'  # One decimal for other numeric values
+        
+        # Auto-adjust column widths for data columns only
+        for col_idx in range(1, len(headers) + 1):
+            max_length = 0
+            for row_idx in range(start_row, start_row + len(df) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 30)  # Cap at 30 to prevent overly wide columns
+            ws.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
+        
+        # Insert chart image after the data table
+        chart_row = start_row + len(df) + 3  # 3 rows gap after data table
+        img = Image(chart_img)
+        img.width = 800
+        img.height = 400
+        ws.add_image(img, f'A{chart_row}')
+        
+        # Save to buffer
         buffer = io.BytesIO()
-        df.to_excel(buffer, index=False)
+        wb.save(buffer)
         buffer.seek(0)
+        
         return send_file(
             buffer,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1076,7 +1238,7 @@ HTML_TEMPLATE = """
 
             <div class="table-section">
                 <div class="table-header">
-                    <h3>Workstation Report</h3>
+                    <h3>Line Balancing Report</h3>
                     <div class="export-buttons">
                         <a href="/monitor/{{ session_id }}" class="nav-link monitor-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1103,7 +1265,7 @@ HTML_TEMPLATE = """
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Workstation</th>
+                                    <th>Composite Operations</th>
                                     <th>Serial/Id</th>
                                     <th>Operations</th>
                                     <th>Machine</th>
@@ -1121,7 +1283,7 @@ HTML_TEMPLATE = """
                             <tbody>
                                 {% for row in rows %}
                                 <tr>
-                                    <td>{{ row['Workstation'] }}</td>
+                                    <td>{{ row['Composite Operations'] }}</td>
                                     <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
                                     <td class="smart-break-cell">{{ row['Operations'] }}</td>
                                     <td class="smart-break-cell">{{ row['Machine'] }}</td>

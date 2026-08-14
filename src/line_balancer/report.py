@@ -97,7 +97,7 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         
         # Add row to report
         rows.append({
-            "Workstation": ws_num,
+            "Composite Operations": int(ws_num),  # Ensure workstation number is stored as integer
             "Serial/Id": op_ids,
             "Operations": op_names,
             "Machine": machine_types,
@@ -112,7 +112,10 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
             "Status": status,
         })
     
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Ensure Workstation column is integer type
+    df['Composite Operations'] = df['Composite Operations'].astype(int)
+    return df
 
 
 def print_summary(
