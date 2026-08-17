@@ -125,6 +125,10 @@ def print_summary(
     workstations: List[Workstation],
     line_balancing_rate: float,
     flagged_ops: List[Operation],
+    balance_delay: float = None,
+    line_efficiency: float = None,
+    pitch_time_source: str = "calculated",
+    smoothing_index: float = None,
 ) -> None:
     """
     Print a summary of the balancing results to the console.
@@ -132,7 +136,7 @@ def print_summary(
     Shows:
     - The calculated metrics (Pitch Time, UCL, LCL)
     - Summary counts (workstations, total manpower)
-    - Line balancing rate
+    - Line balancing rate, balance delay, line efficiency, smoothing index
     - Any flagged operations that had errors
     
     Args:
@@ -142,6 +146,10 @@ def print_summary(
         workstations: List of balanced workstations
         line_balancing_rate: Calculated balancing rate percentage
         flagged_ops: List of operations with errors
+        balance_delay: Optional balance delay percentage
+        line_efficiency: Optional line efficiency percentage
+        pitch_time_source: Source of pitch time calculation
+        smoothing_index: Optional smoothing index in minutes
     """
     df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
     
@@ -150,12 +158,18 @@ def print_summary(
     print("=" * 120)
     print(df.to_string(index=False))
     print("-" * 120)
-    print(f"Pitch Time:        {pitch_time:.1f}s")
+    print(f"Pitch Time:        {pitch_time:.1f}s ({pitch_time_source})")
     print(f"Upper Limit (UCL): {ucl:.1f}s")
     print(f"Lower Limit (LCL): {lcl:.1f}s")
     print(f"Total Workstations: {len(workstations)}")
     print(f"Total Manpower:     {sum(ws.manpower for ws in workstations)} operators")
     print(f"Line Balancing Rate: {line_balancing_rate:.1f}%")
+    if balance_delay is not None:
+        print(f"Balance Delay: {balance_delay:.1f}%")
+    if line_efficiency is not None:
+        print(f"Line Efficiency: {line_efficiency:.1f}%")
+    if smoothing_index is not None:
+        print(f"Smoothing Index: {smoothing_index:.2f} min")
     print("=" * 120)
     
     # Show any flagged operations

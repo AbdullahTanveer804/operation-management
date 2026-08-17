@@ -13,14 +13,14 @@ from typing import List, Optional
 if __package__ in {None, ""}:
     from balancing import group_and_balance
     from io_utils import read_operations
-    from metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_tolerance_bands
+    from metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
     from models import Workstation
     from report import build_report_dataframe, export_report, print_summary
     from sequencing import sort_by_id
 else:
     from .balancing import group_and_balance
     from .io_utils import read_operations
-    from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_tolerance_bands
+    from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
     from .models import Workstation
     from .report import build_report_dataframe, export_report, print_summary
     from .sequencing import sort_by_id
@@ -38,6 +38,10 @@ def run_workflow(
     input_path: Optional[str] = None,
     tolerance: float = 0.15,
     export_path: Optional[str] = None,
+    production_target: Optional[int] = None,
+    shift_time_minutes: Optional[float] = None,
+    pitch_time_method: str = "auto",
+    manual_pitch_time: Optional[float] = None,
 ) -> dict:
     resolved_input = resolve_input_path(input_path)
 
@@ -47,8 +51,23 @@ def run_workflow(
     # STEP 2: Sort operations by Serial No. / ID (ascending)
     sorted_operations = sort_by_id(raw_operations)
 
-    # STEP 3 & 4: Calculate Pitch Time and control limits
-    pitch_time = calculate_pitch_time(sorted_operations)
+    # STEP 3 & 4: Calculate Pitch Time based on method
+    if pitch_time_method == "manual":
+        if manual_pitch_time is None or manual_pitch_time <= 0:
+            raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
+        pitch_time = manual_pitch_time
+        pitch_time_source = "manual"
+    elif pitch_time_method == "target":
+        if production_target is None or production_target <= 0:
+            raise ValueError("Production target must be provided and positive when method is 'target'.")
+        if shift_time_minutes is None or shift_time_minutes <= 0:
+            raise ValueError("Shift time must be provided and positive when method is 'target'.")
+        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes, tolerance)
+        pitch_time_source = "By Target"
+    else:  # auto (default)
+        pitch_time = calculate_pitch_time(sorted_operations)
+        pitch_time_source = "calculated"
+    
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
 
     # STEP 5: Balance operations into workstations
@@ -57,11 +76,22 @@ def run_workflow(
     # STEP 6: Calculate line balancing rate
     line_balancing_rate = calculate_line_balancing_rate(workstations)
 
+    # STEP 6.5: Calculate balance delay
+    balance_delay = calculate_balance_delay(workstations, sorted_operations)
+
+    # STEP 6.6: Calculate line efficiency (if production target and shift time provided)
+    line_efficiency = None
+    if production_target is not None and shift_time_minutes is not None:
+        line_efficiency = calculate_line_efficiency(workstations, sorted_operations, production_target, shift_time_minutes)
+
+    # STEP 6.7: Calculate smoothing index
+    smoothing_index = calculate_smoothing_index(workstations)
+
     # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
     report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
 
-    print_summary(pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops)
+    print_summary(pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops, balance_delay, line_efficiency, pitch_time_source, smoothing_index)
 
     if export_path:
         export_report(workstations, export_path, pitch_time=pitch_time, ucl=ucl, lcl=lcl)
@@ -72,10 +102,14 @@ def run_workflow(
         "operations": raw_operations,
         "sorted_operations": sorted_operations,
         "pitch_time": pitch_time,
+        "pitch_time_source": pitch_time_source,
         "ucl": ucl,
         "lcl": lcl,
         "workstations": workstations,
         "line_balancing_rate": line_balancing_rate,
+        "balance_delay": balance_delay,
+        "line_efficiency": line_efficiency,
+        "smoothing_index": smoothing_index,
         "flagged_ops": flagged_ops,
         "report_df": report_df,
     }
@@ -85,11 +119,19 @@ def run(
     input_path: Optional[str] = None,
     tolerance: float = 0.15,
     export_path: Optional[str] = None,
+    production_target: Optional[int] = None,
+    shift_time_minutes: Optional[float] = None,
+    pitch_time_method: str = "auto",
+    manual_pitch_time: Optional[float] = None,
 ) -> List[Workstation]:
     result = run_workflow(
         input_path=input_path,
         tolerance=tolerance,
         export_path=export_path,
+        production_target=production_target,
+        shift_time_minutes=shift_time_minutes,
+        pitch_time_method=pitch_time_method,
+        manual_pitch_time=manual_pitch_time,
     )
     return result["workstations"]
 
@@ -99,12 +141,20 @@ def main() -> None:
     parser.add_argument("input", nargs="?", default=None, help="Path to CSV/XLSX with operation data")
     parser.add_argument("--tolerance", type=float, default=0.15, help="UCL/LCL tolerance, default 0.15 (15%%)")
     parser.add_argument("--export", type=str, default=None, help="Export report to a CSV or XLSX path")
+    parser.add_argument("--production-target", type=int, default=None, help="Production target (number of units) for line efficiency calculation and pitch time calculation")
+    parser.add_argument("--shift-time", type=float, default=None, help="Shift time in minutes for line efficiency calculation and pitch time calculation")
+    parser.add_argument("--pitch-time-method", type=str, default="auto", choices=["auto", "manual", "target"], help="Method for calculating pitch time: auto (from file), manual (input), target (from production target)")
+    parser.add_argument("--pitch-time", type=float, default=None, help="Manual pitch time (required when --pitch-time-method is manual)")
     args = parser.parse_args()
 
     run_workflow(
         input_path=args.input,
         tolerance=args.tolerance,
         export_path=args.export,
+        production_target=args.production_target,
+        shift_time_minutes=args.shift_time,
+        pitch_time_method=args.pitch_time_method,
+        manual_pitch_time=args.pitch_time,
     )
 
 

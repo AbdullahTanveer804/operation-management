@@ -27,7 +27,7 @@ from openpyxl.utils import get_column_letter
 from src.line_balancer.models import Operation, Workstation
 from src.line_balancer.io_utils import read_operations
 from src.line_balancer.sequencing import sort_by_id
-from src.line_balancer.metrics import calculate_pitch_time, calculate_tolerance_bands, calculate_line_balancing_rate
+from src.line_balancer.metrics import calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_line_balancing_rate, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
 from src.line_balancer.balancing import group_and_balance
 from src.line_balancer.report import build_report_dataframe, determine_status
 
@@ -56,7 +56,7 @@ def get_calculation(session_id: str) -> Optional[Dict]:
     return result
 
 
-def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manual_pitch_time: Optional[float] = None) -> Dict:
+def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manual_pitch_time: Optional[float] = None, production_target: Optional[int] = None, shift_time_minutes: Optional[float] = None, pitch_time_method: str = "auto") -> Dict:
     """
     Run the complete balancing calculation and return all results.
     
@@ -64,6 +64,9 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         operations: List of Operation objects from CSV/Excel
         tolerance: UCL/LCL tolerance (default 15%)
         manual_pitch_time: Optional manual pitch time override
+        production_target: Optional production target for line efficiency calculation and pitch time calculation
+        shift_time_minutes: Optional shift time in minutes for line efficiency calculation and pitch time calculation
+        pitch_time_method: Method for calculating pitch time ("auto", "manual", "target")
     
     Returns:
         Dictionary with all calculation results
@@ -71,13 +74,20 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     # Step 1: Sort operations by ID
     sorted_ops = sort_by_id(operations)
     
-    # Step 2: Calculate or use manual Pitch Time and control limits
-    if manual_pitch_time is not None:
-        if manual_pitch_time <= 0:
-            raise ValueError("Manual pitch time must be a positive number.")
+    # Step 2: Calculate Pitch Time based on method
+    if pitch_time_method == "manual":
+        if manual_pitch_time is None or manual_pitch_time <= 0:
+            raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
-    else:
+    elif pitch_time_method == "target":
+        if production_target is None or production_target <= 0:
+            raise ValueError("Production target must be provided and positive when method is 'target'.")
+        if shift_time_minutes is None or shift_time_minutes <= 0:
+            raise ValueError("Shift time must be provided and positive when method is 'target'.")
+        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes, tolerance)
+        pitch_time_source = "By Target"
+    else:  # auto (default)
         pitch_time = calculate_pitch_time(sorted_ops)
         pitch_time_source = "calculated"
     
@@ -88,6 +98,19 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     
     # Step 4: Calculate line balancing rate
     line_balancing_rate = calculate_line_balancing_rate(workstations)
+    
+    # Step 4.5: Calculate balance delay
+    balance_delay = calculate_balance_delay(workstations, sorted_ops)
+    
+    # Step 4.6: Calculate line efficiency (if production target and shift time provided)
+    line_efficiency = None
+    if production_target is not None and shift_time_minutes is not None:
+        if production_target <= 0 or shift_time_minutes <= 0:
+            raise ValueError("Production target and shift time must be positive numbers.")
+        line_efficiency = calculate_line_efficiency(workstations, sorted_ops, production_target, shift_time_minutes)
+    
+    # Step 4.7: Calculate smoothing index
+    smoothing_index = calculate_smoothing_index(workstations)
     
     # Step 5: Build report
     report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time)
@@ -101,6 +124,9 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "lcl": lcl,
         "workstations": workstations,
         "line_balancing_rate": line_balancing_rate,
+        "balance_delay": balance_delay,
+        "line_efficiency": line_efficiency,
+        "smoothing_index": smoothing_index,
         "report_df": report_df,
         "tolerance": tolerance,
     }
@@ -198,8 +224,11 @@ def index():
         try:
             # Get file and parameters
             file = request.files.get("file")
+            pitch_time_method = request.form.get("pitch_time_method", "auto")
             pitch_time_str = request.form.get("pitch_time", "")
             tolerance_str = request.form.get("tolerance", "0.15")
+            production_target_str = request.form.get("production_target", "")
+            shift_time_str = request.form.get("shift_time", "")
             
             if not file or file.filename == "":
                 error = "Please select a file to upload."
@@ -207,11 +236,28 @@ def index():
                 # Parse parameters
                 manual_pitch_time = float(pitch_time_str) if pitch_time_str else None
                 tolerance = float(tolerance_str)
+                production_target = int(production_target_str) if production_target_str else None
+                shift_time_minutes = float(shift_time_str) if shift_time_str else None
                 
-                # Validate manual pitch time if provided
-                if manual_pitch_time is not None and manual_pitch_time <= 0:
-                    error = "Manual pitch time must be a positive number."
-                else:
+                # Validate based on pitch time method
+                if pitch_time_method == "manual":
+                    if manual_pitch_time is None or manual_pitch_time <= 0:
+                        error = "Manual pitch time must be provided and positive when method is 'manual'."
+                elif pitch_time_method == "target":
+                    if production_target is None or production_target <= 0:
+                        error = "Production target must be provided and positive when method is 'target'."
+                    elif shift_time_minutes is None or shift_time_minutes <= 0:
+                        error = "Shift time must be provided and positive when method is 'target'."
+                else:  # auto
+                    # No validation needed for auto method
+                    pass
+                
+                # Additional validation for line efficiency parameters (only if not using target method)
+                if not error and pitch_time_method != "target":
+                    if (production_target is not None and production_target <= 0) or (shift_time_minutes is not None and shift_time_minutes <= 0):
+                        error = "Production target and shift time must be positive numbers if provided."
+                
+                if not error:
                     # Read operations from file
                     filepath = Path(file.filename)
                     if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
@@ -233,7 +279,7 @@ def index():
                                 error = f"File has validation errors:<br>{error_list}"
                             else:
                                 # Run calculation
-                                result = calculate_balance(operations, tolerance, manual_pitch_time)
+                                result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method)
                                 
                                 # Convert dataframe to list of dicts for template
                                 df = result["report_df"]
@@ -325,8 +371,24 @@ def export(format: str, session_id: str):
         ws['C2'] = f"Line Balancing Rate: {calc['line_balancing_rate']:.1f}%"
         ws['C2'].font = Font(bold=True)
         
-        # Add data table starting from row 5
-        start_row = 5
+        ws['A5'] = f"Balance Delay: {calc['balance_delay']:.1f}%"
+        ws['A5'].font = Font(bold=True)
+        
+        # Initialize start_row based on line efficiency presence
+        if calc.get('line_efficiency') is not None:
+            ws['C3'] = f"Line Efficiency: {calc['line_efficiency']:.1f}%"
+            ws['C3'].font = Font(bold=True)
+            current_row = 6
+        else:
+            current_row = 5
+        
+        # Add smoothing index
+        current_row = current_row + 1
+        ws['A' + str(current_row)] = f"Smoothing Index: {calc['smoothing_index']:.2f} min"
+        ws['A' + str(current_row)].font = Font(bold=True)
+        
+        # Set start_row for data table (add one row spacing after metrics)
+        start_row = current_row + 2
         
         # Write headers
         headers = list(df.columns)
@@ -390,6 +452,8 @@ def recalculate():
     data = request.json
     session_id = data.get("session_id")
     manual_pitch_time = data.get("pitch_time")
+    production_target = data.get("production_target")
+    shift_time_minutes = data.get("shift_time_minutes")
     
     calc = get_calculation(session_id)
     if not calc:
@@ -404,17 +468,34 @@ def recalculate():
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid pitch time value."}), 400
     
-    # Recalculate with new pitch time if provided
+    # Validate production target and shift time if provided
+    if production_target is not None:
+        try:
+            production_target = int(production_target)
+            if production_target <= 0:
+                return jsonify({"error": "Production target must be a positive number."}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid production target value."}), 400
+    
+    if shift_time_minutes is not None:
+        try:
+            shift_time_minutes = float(shift_time_minutes)
+            if shift_time_minutes <= 0:
+                return jsonify({"error": "Shift time must be a positive number."}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid shift time value."}), 400
+    
+    # Recalculate with new parameters if provided
     try:
         operations = calc["operations"]
         tolerance = calc.get("tolerance", 0.15)
         
-        result = calculate_balance(operations, tolerance, manual_pitch_time)
+        result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes)
         
         # Update session with new calculation
         store_calculation(session_id, result)
         
-        return jsonify({
+        response_data = {
             "status": "ok", 
             "result": {
                 "pitch_time": result["pitch_time"],
@@ -422,9 +503,16 @@ def recalculate():
                 "ucl": result["ucl"],
                 "lcl": result["lcl"],
                 "line_balancing_rate": result["line_balancing_rate"],
+                "balance_delay": result["balance_delay"],
+                "smoothing_index": result["smoothing_index"],
                 "workstations_count": len(result["workstations"])
             }
-        })
+        }
+        
+        if result["line_efficiency"] is not None:
+            response_data["result"]["line_efficiency"] = result["line_efficiency"]
+        
+        return jsonify(response_data)
     except Exception as e:
         return jsonify({"error": f"Recalculation failed: {str(e)}"}), 500
 
@@ -459,8 +547,13 @@ def get_chart_data(session_id: str):
         "pitch_time_source": calc.get("pitch_time_source", "calculated"),
         "ucl": ucl,
         "lcl": lcl,
-        "line_balancing_rate": calc["line_balancing_rate"]
+        "line_balancing_rate": calc["line_balancing_rate"],
+        "balance_delay": calc["balance_delay"],
+        "smoothing_index": calc["smoothing_index"]
     }
+    
+    if calc.get("line_efficiency") is not None:
+        chart_data["line_efficiency"] = calc["line_efficiency"]
     
     return jsonify(chart_data)
 
@@ -668,7 +761,8 @@ HTML_TEMPLATE = """
         }
 
         input[type="file"],
-        input[type="number"] {
+        input[type="number"],
+        select {
             background: var(--surface-2);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
@@ -678,7 +772,8 @@ HTML_TEMPLATE = """
             transition: all var(--transition);
         }
 
-        input:focus {
+        input:focus,
+        select:focus {
             outline: none;
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
@@ -791,6 +886,12 @@ HTML_TEMPLATE = """
             background: rgba(34, 197, 94, 0.2);
             color: #22c55e;
             border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .pitch-source-badge.target {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.3);
         }
             font-weight: 700;
             font-variant-numeric: tabular-nums;
@@ -1157,19 +1258,12 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <nav class="navbar">
-            <div class="nav-links">
-                <a href="/" class="nav-link active">Home</a>
-                <a href="/monitor{% if session_id %}/{{ session_id }}{% endif %}" class="nav-link">Monitor</a>
-            </div>
-            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
-        </nav>
-
         <div class="header">
             <div>
                 <h1>Line Balancing Optimizer</h1>
                 <p>Upload operation data and configure parameters to optimize workstation balance</p>
             </div>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
         </div>
 
         <form method="post" enctype="multipart/form-data" class="form-card">
@@ -1180,12 +1274,28 @@ HTML_TEMPLATE = """
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
                 </div>
                 <div class="field">
+                    <label>Pitch Time Method</label>
+                    <select name="pitch_time_method" id="pitch_time_method" onchange="togglePitchTimeInput()">
+                        <option value="auto">Auto-calculate from file</option>
+                        <option value="manual">Manual input</option>
+                        <option value="target">Calculate from target</option>
+                    </select>
+                </div>
+                <div class="field" id="pitch_time_field">
                     <label>Pitch Time (optional)</label>
-                    <input type="number" name="pitch_time" value="" placeholder="Auto-calculate if empty" min="0" step="0.1">
+                    <input type="number" name="pitch_time" id="pitch_time_input" value="" placeholder="Auto-calculate if empty" min="0" step="0.1">
                 </div>
                 <div class="field">
                     <label>Tolerance</label>
                     <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
+                </div>
+                <div class="field">
+                    <label>Production Target (optional)</label>
+                    <input type="number" name="production_target" value="" placeholder="Number of units" min="0" step="1">
+                </div>
+                <div class="field">
+                    <label>Shift Time (minutes, optional)</label>
+                    <input type="number" name="shift_time" value="" placeholder="Shift duration in minutes" min="0" step="1">
                 </div>
                 <div class="field">
                     <label>&nbsp;</label>
@@ -1209,6 +1319,8 @@ HTML_TEMPLATE = """
                         {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                         {% if result.pitch_time_source == "manual" %}
                         <span class="pitch-source-badge manual">Manual</span>
+                        {% elif result.pitch_time_source == "By Target" %}
+                        <span class="pitch-source-badge target">By Target</span>
                         {% else %}
                         <span class="pitch-source-badge auto">Auto</span>
                         {% endif %}
@@ -1225,6 +1337,20 @@ HTML_TEMPLATE = """
                 <div class="metric-card highlight">
                     <div class="label">BALANCING RATE</div>
                     <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">BALANCE DELAY</div>
+                    <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                {% if result.line_efficiency %}
+                <div class="metric-card">
+                    <div class="label">LINE EFFICIENCY</div>
+                    <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                {% endif %}
+                <div class="metric-card">
+                    <div class="label">SMOOTHING INDEX</div>
+                    <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 <div class="metric-card">
                     <div class="label">Composite Operatoins</div>
@@ -1326,6 +1452,22 @@ HTML_TEMPLATE = """
             document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
         }
 
+        // Toggle pitch time input field based on method selection
+        function togglePitchTimeInput() {
+            const method = document.getElementById('pitch_time_method').value;
+            const pitchTimeField = document.getElementById('pitch_time_field');
+            const pitchTimeInput = document.getElementById('pitch_time_input');
+            
+            if (method === 'manual') {
+                pitchTimeField.style.display = 'flex';
+                pitchTimeInput.required = true;
+            } else {
+                pitchTimeField.style.display = 'none';
+                pitchTimeInput.required = false;
+                pitchTimeInput.value = '';
+            }
+        }
+
         // Restore theme on load
         window.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -1341,6 +1483,9 @@ HTML_TEMPLATE = """
                     link.classList.add('active');
                 }
             });
+
+            // Initialize pitch time field visibility
+            togglePitchTimeInput();
 
             // Handle smart + breaking for specific columns (Serial/Id, Operations, Machine, Predecessor, Basic Time)
             const smartBreakCells = document.querySelectorAll('.smart-break-cell');

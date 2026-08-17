@@ -24,31 +24,23 @@ line_balancer/
 ## Setup in VS Code
 
 1. **Open the folder**
-   Extract the zip, then in VS Code: `File > Open Folder...` and select `line_balancer/`.
-2. **Create a virtual environment** (VS Code terminal: ``Ctrl+` ``)
+   Extract the zip, then in VS Code: `File > Open Folder...` and select `operation-management/`.
+2. **Install the package + dependencies using uv**
+
+   Ensure you're in the `operation-management/` directory (you should already be there after opening the folder in VS Code), then run:
 
    ```bash
-   python3 -m venv .venv
+   uv sync
    ```
-3. **Activate it**
 
-   - macOS/Linux: `source .venv/bin/activate`
-   - Windows: `.venv\Scripts\activate`
+   This creates a virtual environment in `.venv` and installs all dependencies from `pyproject.toml` in editable mode, so edits to the code take effect immediately.
 
    VS Code will usually prompt *"Select interpreter"* — pick the one inside `.venv`.
-4. **Install the package + dependencies**
-
-   ```bash
-   pip install -e .
-   pip install pytest
-   ```
-
-   `-e .` installs it in "editable" mode, using `pyproject.toml`, so edits to the code take effect immediately without reinstalling.
 
 ## Running it
 
 ```bash
-python -m line_balancer.main data/sample_operations.csv --export data/report.csv
+uv run python -m line_balancer.main data/sample_operations.csv --export data/report.csv
 ```
 
 - `--tolerance 0.15` — UCL/LCL band width (defaults to 15%).
@@ -57,7 +49,7 @@ python -m line_balancer.main data/sample_operations.csv --export data/report.csv
 ## Testing
 
 ```bash
-python -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 All logic (sequencing, pitch time, grouping/splitting) has unit tests you can extend as you add features.
