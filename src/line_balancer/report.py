@@ -125,18 +125,32 @@ def print_summary(
     workstations: List[Workstation],
     line_balancing_rate: float,
     flagged_ops: List[Operation],
+    operations: List[Operation],
     balance_delay: float = None,
     line_efficiency: float = None,
     pitch_time_source: str = "calculated",
     smoothing_index: float = None,
+    tolerance: float = 0.15,
+    production_target: int = None,
+    shift_time_minutes: float = None,
 ) -> None:
     """
     Print a summary of the balancing results to the console.
     
-    Shows:
-    - The calculated metrics (Pitch Time, UCL, LCL)
-    - Summary counts (workstations, total manpower)
-    - Line balancing rate, balance delay, line efficiency, smoothing index
+    Shows metrics in the specified order:
+    1. Production Target (If available)
+    2. Shift Time (If available)
+    3. No. of Composite operations
+    4. Total Basic Time (SAM)
+    5. Line Efficiency%
+    6. Total ManPower
+    7. Pitch Time
+    8. Tolerance
+    9. UCL
+    10. LCL
+    11. Balancing Rate
+    12. Balance Delay
+    13. Smoothing Index
     - Any flagged operations that had errors
     
     Args:
@@ -146,10 +160,14 @@ def print_summary(
         workstations: List of balanced workstations
         line_balancing_rate: Calculated balancing rate percentage
         flagged_ops: List of operations with errors
+        operations: List of all operations (for total basic time calculation)
         balance_delay: Optional balance delay percentage
         line_efficiency: Optional line efficiency percentage
         pitch_time_source: Source of pitch time calculation
         smoothing_index: Optional smoothing index in minutes
+        tolerance: Tolerance percentage (default 0.15 for 15%)
+        production_target: Optional production target
+        shift_time_minutes: Optional shift time in minutes
     """
     df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
     
@@ -158,16 +176,27 @@ def print_summary(
     print("=" * 120)
     print(df.to_string(index=False))
     print("-" * 120)
-    print(f"Pitch Time:        {pitch_time:.1f}s ({pitch_time_source})")
-    print(f"Upper Limit (UCL): {ucl:.1f}s")
-    print(f"Lower Limit (LCL): {lcl:.1f}s")
-    print(f"Total Workstations: {len(workstations)}")
-    print(f"Total Manpower:     {sum(ws.manpower for ws in workstations)} operators")
-    print(f"Line Balancing Rate: {line_balancing_rate:.1f}%")
+    
+    # Print metrics in the specified order
+    if production_target is not None:
+        print(f"Production Target: {production_target} units")
+    if shift_time_minutes is not None:
+        print(f"Shift Time: {shift_time_minutes:.1f} minutes")
+    print(f"No. of Composite operations: {len(workstations)}")
+    print(f"Total Basic Time (SAM): {sum(op.basic_time for op in operations) / 60:.1f} min")
+    if line_efficiency is not None:
+        print(f"Line Efficiency%: {line_efficiency:.1f}%")
+    print(f"Total ManPower: {sum(ws.manpower for ws in workstations)}")
+    print(f"Pitch Time: {pitch_time:.1f}s ({pitch_time_source})")
+    if tolerance != 0.15:
+        print(f"Tolerance (Manual): {tolerance * 100:.1f}%")
+    else:
+        print(f"Tolerance: {tolerance * 100:.1f}%")
+    print(f"UCL: {ucl:.1f}s")
+    print(f"LCL: {lcl:.1f}s")
+    print(f"Balancing Rate: {line_balancing_rate:.1f}%")
     if balance_delay is not None:
         print(f"Balance Delay: {balance_delay:.1f}%")
-    if line_efficiency is not None:
-        print(f"Line Efficiency: {line_efficiency:.1f}%")
     if smoothing_index is not None:
         print(f"Smoothing Index: {smoothing_index:.2f} min")
     print("=" * 120)

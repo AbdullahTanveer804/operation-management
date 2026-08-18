@@ -3,7 +3,6 @@ Line Balancing Tool - Modern Web Application
 
 A professional Flask web app for:
 - IE departments (planning view): full features on desktop
-- Floor supervisors (monitoring view): responsive on tablets
 - Real-time balancing calculations and manual overrides
 """
 
@@ -30,6 +29,7 @@ from src.line_balancer.sequencing import sort_by_id
 from src.line_balancer.metrics import calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_line_balancing_rate, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
 from src.line_balancer.balancing import group_and_balance
 from src.line_balancer.report import build_report_dataframe, determine_status
+from src.line_balancer.before_balancing_metrics import calculate_all_before_metrics
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max
@@ -112,6 +112,12 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     # Step 4.7: Calculate smoothing index
     smoothing_index = calculate_smoothing_index(workstations)
     
+    # Step 4.8: Calculate total basic time (SAM) in minutes
+    total_basic_time = sum(op.basic_time for op in sorted_ops) / 60  # Convert seconds to minutes
+    
+    # Step 4.9: Calculate before-balancing metrics
+    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, tolerance)
+    
     # Step 5: Build report
     report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time)
     
@@ -127,8 +133,12 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "balance_delay": balance_delay,
         "line_efficiency": line_efficiency,
         "smoothing_index": smoothing_index,
+        "total_basic_time": total_basic_time,
+        "production_target": production_target,
+        "shift_time_minutes": shift_time_minutes,
         "report_df": report_df,
         "tolerance": tolerance,
+        "before_metrics": before_metrics,
     }
 
 
@@ -349,51 +359,116 @@ def export(format: str, session_id: str):
         
         # Create Excel workbook with openpyxl
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Line Balance Report"
+        worksheet = wb.active
+        worksheet.title = "Line Balance Report"
         
         # Add title and metrics
-        ws['A1'] = "Line Balancing Report"
-        ws['A1'].font = Font(size=16, bold=True, color="3B82F6")
-        ws['A1'].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        ws.merge_cells('A1:M1')
+        worksheet['A1'] = "Line Balancing Report"
+        worksheet['A1'].font = Font(size=16, bold=True, color="3B82F6")
+        worksheet['A1'].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        worksheet.merge_cells('A1:M1')
         
-        # Add metrics below title
-        ws['A2'] = f"Pitch Time: {calc['pitch_time']:.1f}s"
-        ws['A2'].font = Font(bold=True)
+        # Add metrics below title in the specified order
+        current_row = 2
         
-        ws['A3'] = f"UCL: {calc['ucl']:.1f}s"
-        ws['A3'].font = Font(bold=True)
+        # 1. Production Target (If available)
+        production_target = calc.get('production_target')
+        if production_target is not None:
+            worksheet[f'A{current_row}'] = f"Production Target: {production_target} units"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
         
-        ws['A4'] = f"LCL: {calc['lcl']:.1f}s"
-        ws['A4'].font = Font(bold=True)
+        # 2. Shift Time (If available)
+        shift_time = calc.get('shift_time_minutes')
+        if shift_time is not None:
+            worksheet[f'A{current_row}'] = f"Shift Time: {shift_time:.1f} minutes"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
         
-        ws['C2'] = f"Line Balancing Rate: {calc['line_balancing_rate']:.1f}%"
-        ws['C2'].font = Font(bold=True)
+        # 3. No. of Composite operations
+        total_composite_operations = len(calc['workstations'])
+        worksheet[f'A{current_row}'] = f"Composite operations: {total_composite_operations}"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
         
-        ws['A5'] = f"Balance Delay: {calc['balance_delay']:.1f}%"
-        ws['A5'].font = Font(bold=True)
+        # 4. Total Basic Time (SAM)
+        total_basic_time = calc['total_basic_time']  # Already calculated in minutes
+        worksheet[f'A{current_row}'] = f"Total Basic Time (SAM): {total_basic_time:.1f} min"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
         
-        # Initialize start_row based on line efficiency presence
-        if calc.get('line_efficiency') is not None:
-            ws['C3'] = f"Line Efficiency: {calc['line_efficiency']:.1f}%"
-            ws['C3'].font = Font(bold=True)
-            current_row = 6
+        # 5. Line Efficiency% (If available)
+        line_efficiency = calc.get('line_efficiency')
+        if line_efficiency is not None:
+            worksheet[f'A{current_row}'] = f"Line Efficiency%: {line_efficiency:.1f}%"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+        
+        # 6. Total ManPower
+        manpower_sum = 0
+        for each_ws in calc['workstations']:
+            manpower_sum += each_ws.manpower
+        total_manpower = manpower_sum
+        worksheet[f'A{current_row}'] = f"Total ManPower: {total_manpower}"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
+        
+        # 7. Pitch Time
+        pitch_time_source_tag = calc.get('pitch_time_source', 'calculated')
+        if pitch_time_source_tag == "manual":
+            source_display = "(Manual)"
+        elif pitch_time_source_tag == "By Target":
+            source_display = "(By Target)"
+        else:  # "calculated" or any other value
+            source_display = "(Auto)"
+        
+        worksheet[f'A{current_row}'] = f"Pitch Time: {calc['pitch_time']:.1f}s {source_display}"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
+        
+        # 8. Tolerance
+        tolerance_value = calc.get('tolerance', 0.15)
+        tolerance_percentage = tolerance_value * 100
+        if tolerance_value != 0.15:
+            tolerance_label = f"Tolerance (Manual): {tolerance_percentage:.1f}%"
         else:
-            current_row = 5
+            tolerance_label = f"Tolerance: {tolerance_percentage:.1f}%"
+        worksheet[f'A{current_row}'] = tolerance_label
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
         
-        # Add smoothing index
-        current_row = current_row + 1
-        ws['A' + str(current_row)] = f"Smoothing Index: {calc['smoothing_index']:.2f} min"
-        ws['A' + str(current_row)].font = Font(bold=True)
+        # 9. UCL
+        worksheet[f'A{current_row}'] = f"UCL: {calc['ucl']:.1f}s"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
+        
+        # 10. LCL
+        worksheet[f'A{current_row}'] = f"LCL: {calc['lcl']:.1f}s"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
+        
+        # 11. Balancing Rate
+        worksheet[f'A{current_row}'] = f"Balancing Rate: {calc['line_balancing_rate']:.1f}%"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
+        
+        # 12. Balance Delay
+        worksheet[f'A{current_row}'] = f"Balance Delay: {calc['balance_delay']:.1f}%"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
+        
+        # 13. Smoothing Index
+        worksheet[f'A{current_row}'] = f"Smoothing Index: {calc['smoothing_index']:.2f} min"
+        worksheet[f'A{current_row}'].font = Font(bold=True)
+        current_row += 1
         
         # Set start_row for data table (add one row spacing after metrics)
-        start_row = current_row + 2
+        start_row = current_row + 1
         
         # Write headers
         headers = list(df.columns)
         for col_idx, header in enumerate(headers, 1):
-            cell = ws.cell(row=start_row, column=col_idx, value=header)
+            cell = worksheet.cell(row=start_row, column=col_idx, value=header)
             cell.font = Font(bold=True, size=11)
             cell.fill = PatternFill(start_color="E8EDF4", end_color="E8EDF4", fill_type="solid")
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -401,7 +476,7 @@ def export(format: str, session_id: str):
         # Write data
         for row_idx, row in enumerate(df.itertuples(index=False), start_row + 1):
             for col_idx, value in enumerate(row, 1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
                 cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 
                 # Format numeric values - but keep workstation identifiers as whole numbers
@@ -415,21 +490,21 @@ def export(format: str, session_id: str):
         for col_idx in range(1, len(headers) + 1):
             max_length = 0
             for row_idx in range(start_row, start_row + len(df) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
+                cell = worksheet.cell(row=row_idx, column=col_idx)
                 try:
                     if cell.value and len(str(cell.value)) > max_length:
                         max_length = len(str(cell.value))
                 except:
                     pass
             adjusted_width = min(max_length + 2, 30)  # Cap at 30 to prevent overly wide columns
-            ws.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
+            worksheet.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
         
         # Insert chart image after the data table
         chart_row = start_row + len(df) + 3  # 3 rows gap after data table
         img = Image(chart_img)
         img.width = 800
         img.height = 400
-        ws.add_image(img, f'A{chart_row}')
+        worksheet.add_image(img, f'A{chart_row}')
         
         # Save to buffer
         buffer = io.BytesIO()
@@ -490,7 +565,15 @@ def recalculate():
         operations = calc["operations"]
         tolerance = calc.get("tolerance", 0.15)
         
-        result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes)
+        # Determine pitch time method based on what parameters are provided
+        if manual_pitch_time is not None:
+            pitch_time_method = "manual"
+        elif production_target is not None and shift_time_minutes is not None:
+            pitch_time_method = "target"
+        else:
+            pitch_time_method = "auto"
+        
+        result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method)
         
         # Update session with new calculation
         store_calculation(session_id, result)
@@ -505,8 +588,14 @@ def recalculate():
                 "line_balancing_rate": result["line_balancing_rate"],
                 "balance_delay": result["balance_delay"],
                 "smoothing_index": result["smoothing_index"],
-                "workstations_count": len(result["workstations"])
-            }
+                "total_basic_time": result["total_basic_time"],
+                "production_target": result["production_target"],
+                "shift_time_minutes": result["shift_time_minutes"],
+                "workstations_count": len(result["workstations"]),
+                "tolerance": result["tolerance"],
+                "before_metrics": result["before_metrics"]
+            },
+            "before_metrics": result["before_metrics"]
         }
         
         if result["line_efficiency"] is not None:
@@ -519,7 +608,7 @@ def recalculate():
 
 @app.route("/api/chart-data/<session_id>")
 def get_chart_data(session_id: str):
-    """Get chart data for the monitoring view."""
+    """Get chart data for the home view."""
     print(f"API request for session: {session_id}")
     print(f"Available sessions: {list(SESSIONS.keys())}")
     
@@ -549,7 +638,11 @@ def get_chart_data(session_id: str):
         "lcl": lcl,
         "line_balancing_rate": calc["line_balancing_rate"],
         "balance_delay": calc["balance_delay"],
-        "smoothing_index": calc["smoothing_index"]
+        "smoothing_index": calc["smoothing_index"],
+        "total_basic_time": calc["total_basic_time"],
+        "production_target": calc.get("production_target"),
+        "shift_time_minutes": calc.get("shift_time_minutes"),
+        "tolerance": calc.get("tolerance", 0.15)
     }
     
     if calc.get("line_efficiency") is not None:
@@ -558,26 +651,79 @@ def get_chart_data(session_id: str):
     return jsonify(chart_data)
 
 
-@app.route("/monitor")
-@app.route("/monitor/<session_id>")
-def monitor(session_id: str = None):
-    """Floor monitoring view (simplified, responsive)."""
+@app.route("/api/before-chart-data/<session_id>")
+def get_before_chart_data(session_id: str):
+    """Get before balancing chart data for the home view."""
+    print(f"API request for before chart session: {session_id}")
+    
+    calc = get_calculation(session_id)
+    if not calc:
+        return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
+    
+    # Extract before balancing metrics
+    before_metrics = calc["before_metrics"]
+    operations = calc["sorted_operations"]
+    
+    # Prepare data for chart with operation names and basic times
+    operation_names = [op.name for op in operations]
+    basic_times = [op.basic_time for op in operations]
+    
+    chart_data = {
+        "operations": operation_names,
+        "basic_times": basic_times,
+        "pitch_time": before_metrics["pitch_time"],
+        "ucl": before_metrics["ucl"],
+        "lcl": before_metrics["lcl"],
+        "balancing_rate": before_metrics["balancing_rate"],
+        "balance_delay": before_metrics["balance_delay"],
+        "smoothing_index": before_metrics["smoothing_index"],
+        "total_basic_time": before_metrics["total_basic_time"],
+        "tolerance": before_metrics["tolerance"]
+    }
+    
+    if before_metrics.get("line_efficiency") is not None:
+        chart_data["line_efficiency"] = before_metrics["line_efficiency"]
+    
+    return jsonify(chart_data)
+
+
+@app.route("/layout")
+@app.route("/layout/<session_id>")
+def layout(session_id: str = None):
+    """Layout view with line balancing report table and metrics."""
     calc = None
+    rows = []
     if session_id:
         calc = get_calculation(session_id)
+        if calc:
+            # Convert dataframe to list of dicts for template
+            df = calc["report_df"]
+            rows = df.to_dict("records")
+            
+            # Format numeric values
+            for row in rows:
+                row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
+                row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
+                # Format new columns if they are numeric
+                if row["Pitch Time"]:
+                    row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
+                if row["UCL"]:
+                    row["UCL"] = f"{row['UCL']:.1f}"
+                if row["LCL"]:
+                    row["LCL"] = f"{row['LCL']:.1f}"
     
-    return render_template_string(MONITOR_TEMPLATE, session_id=session_id, has_data=calc is not None)
+    return render_template_string(LAYOUT_TEMPLATE, session_id=session_id, has_data=calc is not None, result=calc, rows=rows)
 
 
 # ============== HTML TEMPLATES ==============
 
-HTML_TEMPLATE = """
+LAYOUT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Line Balancing Optimizer</title>
+    <title>Layout View</title>
     <style>
         :root {
             --bg: #0f1419;
@@ -642,46 +788,8 @@ HTML_TEMPLATE = """
             gap: 20px;
         }
 
-        /* Navbar */
-        .navbar {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 12px 20px;
-            margin-bottom: 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: var(--shadow);
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 8px;
-        }
-
-        .nav-link {
-            background: var(--surface-2);
-            color: var(--text-muted);
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: var(--radius-sm);
-            font-size: 13px;
-            font-weight: 500;
-            transition: all var(--transition);
-            border: 1px solid transparent;
-        }
-
-        .nav-link:hover {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-
-        .nav-link.active {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
+        .header-content {
+            flex: 1;
         }
 
         .header h1 {
@@ -722,7 +830,654 @@ HTML_TEMPLATE = """
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
         }
 
-        /* Form Card */
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: all var(--transition);
+        }
+
+        .metric-card:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .metric-card .label {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .metric-card .value {
+            font-size: 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pitch-source-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .pitch-source-badge.manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .pitch-source-badge.auto {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .pitch-source-badge.target {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .metric-card .value {
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+
+        .metric-card.highlight .value {
+            color: var(--accent);
+        }
+
+        /* Table Section */
+        .table-section {
+            position: relative;
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .table-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 0;
+        }
+
+        .table-wrapper {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            table-layout: fixed;
+        }
+
+        th {
+            background: var(--surface-2);
+            padding: 12px 6px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            white-space: normal;
+            line-height: 1.3;
+        }
+
+        th:nth-child(1) { width: 7%; }  /* Workstation */
+        th:nth-child(2) { width: 7%; }  /* Serial/Id */
+        th:nth-child(3) { width: 16%; } /* Operations */
+        th:nth-child(4) { width: 9%; }  /* Machine */
+        th:nth-child(5) { width: 9%; }  /* Predecessor */
+        th:nth-child(6) { width: 9%; }  /* Basic Time */
+        th:nth-child(7) { width: 11%; } /* Combined Basic Time */
+        th:nth-child(8) { width: 9%; }  /* Balancing SAM */
+        th:nth-child(9) { width: 6%; }  /* M/P */
+        th:nth-child(10) { width: 8%; } /* Pitch Time */
+        th:nth-child(11) { width: 8%; } /* UCL */
+        th:nth-child(12) { width: 8%; } /* LCL */
+        th:nth-child(13) { width: 10%; } /* Status */
+
+        td {
+            padding: 12px 8px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+            text-align: center;
+            vertical-align: middle;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+        }
+
+        .smart-break-cell {
+            white-space: pre-wrap;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        tbody tr:hover {
+            background: rgba(59, 130, 246, 0.06);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            min-width: 60px;
+            white-space: nowrap;
+        }
+
+        .status-ok {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .status-ucl {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        .status-lcl {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+        }
+
+        /* Export Buttons */
+        .export-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .export-button, .export-buttons button, .export-buttons a {
+            background: var(--surface-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .export-button:hover, .export-buttons button:hover, .export-buttons a:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .export-button svg, .export-buttons button svg, .export-buttons a svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* Status Section */
+        .status {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        .status p {
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+
+        .status-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .status-link:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px 12px;
+                max-width: 100%;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .header p {
+                font-size: 12px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+
+            .metric-card {
+                padding: 16px;
+            }
+
+            .metric-card .value {
+                font-size: 20px;
+            }
+
+            .table-section h3 {
+                font-size: 12px;
+            }
+
+            .table-wrapper {
+                border-radius: 8px;
+            }
+
+            .table-scroll {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table {
+                font-size: 11px;
+                min-width: 800px;
+            }
+
+            th {
+                padding: 10px 4px;
+                font-size: 9px;
+                line-height: 1.2;
+            }
+
+            td {
+                padding: 10px 4px;
+                font-size: 10px;
+            }
+
+            .status-badge {
+                padding: 4px 8px;
+                font-size: 10px;
+                min-width: 50px;
+            }
+
+            .export-buttons {
+                flex-direction: column;
+            }
+
+            .export-buttons button, .export-buttons a {
+                padding: 8px 12px;
+                font-size: 11px;
+            }
+
+            .table-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <h1>Layout View</h1>
+                <p>Detailed line balancing report table</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <a href="/" class="export-button" style="text-decoration: none; display: flex; align-items: center; gap: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                    Home
+                </a>
+                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+            </div>
+        </div>
+
+        {% if has_data %}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">After Balancing</h3>
+            <div class="export-buttons">
+                <button onclick="exportFile('csv', '{{ session_id }}')">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    CSV
+                </button>
+                <button onclick="exportFile('xlsx', '{{ session_id }}')">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Excel
+                </button>
+            </div>
+        </div>
+        <div class="metrics-grid">
+            {% if result.production_target %}
+            <div class="metric-card">
+                <div class="label">Production Target</div>
+                <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
+            </div>
+            {% endif %}
+            {% if result.shift_time_minutes %}
+            <div class="metric-card">
+                <div class="label">Shift Time</div>
+                <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+            </div>
+            {% endif %}
+            <div class="metric-card">
+                <div class="label">Composite operations</div>
+                <div class="value">{{ result.workstations|length }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Total Basic Time (SAM)</div>
+                <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+            </div>
+            {% if result.line_efficiency %}
+            <div class="metric-card">
+                <div class="label">Line Efficiency%</div>
+                <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+            </div>
+            {% endif %}
+            <div class="metric-card">
+                <div class="label">Total Manpower</div>
+                <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Pitch Time</div>
+                <div class="value">
+                    {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
+                    {% if result.pitch_time_source == "manual" %}
+                    <span class="pitch-source-badge manual">Manual</span>
+                    {% elif result.pitch_time_source == "By Target" %}
+                    <span class="pitch-source-badge target">By Target</span>
+                    {% else %}
+                    <span class="pitch-source-badge auto">Auto</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="label">{% if result.tolerance != 0.15 %}Tolerance (Manual){% else %}Tolerance{% endif %}</div>
+                <div class="value">{{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">UCL</div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">LCL</div>
+                <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+            </div>
+            <div class="metric-card highlight">
+                <div class="label">Balancing Rate</div>
+                <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Balance Delay</div>
+                <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Smoothing Index</div>
+                <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+            </div>
+        </div>
+
+        <div class="table-section">
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;">Line Balancing Report</h3>
+            <div class="table-wrapper">
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Composite Operations</th>
+                                <th>Serial/Id</th>
+                                <th>Operations</th>
+                                <th>Machine</th>
+                                <th>Predecessor</th>
+                                <th>Basic<br>Time</th>
+                                <th>Combined Basic<br>Time</th>
+                                <th>Balancing<br>SAM</th>
+                                <th>M/P</th>
+                                <th>Pitch Time</th>
+                                <th>UCL</th>
+                                <th>LCL</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                <td>{{ row['Composite Operations'] }}</td>
+                                <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
+                                <td class="smart-break-cell">{{ row['Operations'] }}</td>
+                                <td class="smart-break-cell">{{ row['Machine'] }}</td>
+                                <td class="smart-break-cell">{{ row['Predecessor'] }}</td>
+                                <td class="smart-break-cell">{{ row['Basic Time'] }}</td>
+                                <td>{{ row['Combined Basic Time'] }}</td>
+                                <td>{{ row['Balancing SAM'] }}</td>
+                                <td>{{ row['M/P'] }}</td>
+                                <td>{{ row['Pitch Time'] }}</td>
+                                <td>{{ row['UCL'] }}</td>
+                                <td>{{ row['LCL'] }}</td>
+                                <td>
+                                    {% if 'OK' in row['Status'] %}
+                                        <span class="status-badge status-ok">OK</span>
+                                    {% elif 'UCL' in row['Status'] %}
+                                        <span class="status-badge status-ucl">> UCL</span>
+                                    {% else %}
+                                        <span class="status-badge status-lcl">< LCL</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="status">
+            <p>Layout view - detailed line balancing report table</p>
+            <p style="margin-top: 10px; font-size: 14px;">
+                <a href="/" class="status-link">Load a calculation from the main view</a> to display the layout
+            </p>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+        }
+
+        // Restore theme on load
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+        });
+
+        // Export function
+        function exportFile(format, sessionId) {
+            window.location.href = `/api/export/${format}/${sessionId}`;
+        }
+    </script>
+</body>
+</html>
+"""
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line Balancing Optimizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --surface-2: #243044;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e8edf4;
+            --text-muted: #8b9cb3;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --transition: 0.2s ease;
+        }
+
+        [data-theme="light"] {
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --border: rgba(15, 23, 42, 0.1);
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: background var(--transition), color var(--transition);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-content {
+            flex: 1;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        [data-theme="light"] .header h1 {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .theme-toggle {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all var(--transition);
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
+        /* Metrics Grid */
         .form-card {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -893,6 +1648,8 @@ HTML_TEMPLATE = """
             color: #f59e0b;
             border: 1px solid rgba(245, 158, 11, 0.3);
         }
+
+        .metric-card .value {
             font-weight: 700;
             font-variant-numeric: tabular-nums;
             color: var(--text);
@@ -1057,23 +1814,6 @@ HTML_TEMPLATE = """
             height: 14px;
         }
 
-        .export-buttons .monitor-btn {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-            text-decoration: none;
-        }
-
-        .export-buttons .monitor-btn:hover {
-            background: var(--accent-hover);
-            border-color: var(--accent-hover);
-        }
-
-        .export-buttons .monitor-btn svg {
-            width: 14px;
-            height: 14px;
-        }
-
         /* Results Section */
         .results-section {
             animation: fadeIn 0.4s ease;
@@ -1084,12 +1824,90 @@ HTML_TEMPLATE = """
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* Chart Section */
+        .chart-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .chart-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chart-title svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .chart-button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .chart-button:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .chart-button svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .chart-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+            background: var(--surface);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+        }
+
+        .chart-container canvas {
+            background: var(--surface);
+            border-radius: var(--radius-sm);
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 16px 12px;
                 max-width: 100%;
             }
-            
+
             .header {
                 flex-direction: column;
                 align-items: flex-start;
@@ -1184,18 +2002,27 @@ HTML_TEMPLATE = """
                 gap: 12px;
             }
 
-            .navbar {
-                flex-direction: column;
-                gap: 12px;
-            }
-
-            .nav-links {
-                width: 100%;
-                justify-content: center;
-            }
-
             button[type="submit"] {
                 width: 100%;
+            }
+
+            .chart-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .chart-container {
+                height: 300px;
+            }
+
+            .chart-buttons {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .chart-button {
+                width: 100%;
+                justify-content: center;
             }
         }
 
@@ -1235,15 +2062,6 @@ HTML_TEMPLATE = """
                 min-width: 45px;
             }
 
-            .navbar {
-                padding: 10px 12px;
-            }
-
-            .nav-link {
-                padding: 6px 12px;
-                font-size: 11px;
-            }
-
             .export-buttons button {
                 padding: 6px 10px;
                 font-size: 10px;
@@ -1259,7 +2077,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <div class="header">
-            <div>
+            <div class="header-content">
                 <h1>Line Balancing Optimizer</h1>
                 <p>Upload operation data and configure parameters to optimize workstation balance</p>
             </div>
@@ -1312,7 +2130,119 @@ HTML_TEMPLATE = """
 
         {% if result %}
         <section class="results-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Before Balancing</h3>
+                <div class="export-buttons">
+                    <button class="export-button" onclick="window.location.href='/layout/{{ session_id }}'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                        View Layout
+                    </button>
+                    <button class="export-button" onclick="exportFile('xlsx', '{{ session_id }}')">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Export Report
+                    </button>
+                </div>
+            </div>
             <div class="metrics-grid">
+                {% if result.production_target %}
+                <div class="metric-card">
+                    <div class="label">Production Target</div>
+                    <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
+                </div>
+                {% endif %}
+                {% if result.shift_time_minutes %}
+                <div class="metric-card">
+                    <div class="label">Shift Time</div>
+                    <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% endif %}
+                <div class="metric-card">
+                    <div class="label">No. of Operations</div>
+                    <div class="value">{{ result.before_metrics.num_operations }}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Total Basic Time (SAM)</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.total_basic_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% if result.before_metrics.line_efficiency %}
+                <div class="metric-card">
+                    <div class="label">Line Efficiency%</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                {% endif %}
+                <div class="metric-card">
+                    <div class="label">Total Manpower</div>
+                    <div class="value">{{ result.before_metrics.total_manpower }}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Pitch Time</div>
+                    <div class="value">
+                        {{ "%.1f"|format(result.before_metrics.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
+                        <span class="pitch-source-badge auto">Auto</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Tolerance</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">UCL</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">LCL</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                </div>
+                <div class="metric-card highlight">
+                    <div class="label">Balancing Rate</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Balance Delay</div>
+                    <div class="value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Smoothing Index</div>
+                    <div class="value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">After Balancing</h3>
+            <div class="metrics-grid">
+                {% if result.production_target %}
+                <div class="metric-card">
+                    <div class="label">Production Target</div>
+                    <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
+                </div>
+                {% endif %}
+                {% if result.shift_time_minutes %}
+                <div class="metric-card">
+                    <div class="label">Shift Time</div>
+                    <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% endif %}
+                <div class="metric-card">
+                    <div class="label">Composite operations</div>
+                    <div class="value">{{ result.workstations|length }}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="label">Total Basic Time (SAM)</div>
+                    <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% if result.line_efficiency %}
+                <div class="metric-card">
+                    <div class="label">Line Efficiency%</div>
+                    <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                {% endif %}
+                <div class="metric-card">
+                    <div class="label">Total Manpower</div>
+                    <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
+                </div>
                 <div class="metric-card">
                     <div class="label">Pitch Time</div>
                     <div class="value">
@@ -1327,6 +2257,10 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="metric-card">
+                    <div class="label">{% if result.tolerance != 0.15 %}Tolerance (Manual){% else %}Tolerance{% endif %}</div>
+                    <div class="value">{{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                <div class="metric-card">
                     <div class="label">UCL</div>
                     <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
@@ -1335,106 +2269,48 @@ HTML_TEMPLATE = """
                     <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card highlight">
-                    <div class="label">BALANCING RATE</div>
+                    <div class="label">Balancing Rate</div>
                     <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">BALANCE DELAY</div>
+                    <div class="label">Balance Delay</div>
                     <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
-                {% if result.line_efficiency %}
                 <div class="metric-card">
-                    <div class="label">LINE EFFICIENCY</div>
-                    <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                {% endif %}
-                <div class="metric-card">
-                    <div class="label">SMOOTHING INDEX</div>
+                    <div class="label">Smoothing Index</div>
                     <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">Composite Operatoins</div>
-                    <div class="value">{{ result.workstations|length }}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">Total Manpower</div>
-                    <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
                 </div>
             </div>
 
-            <div class="table-section">
-                <div class="table-header">
-                    <h3>Line Balancing Report</h3>
-                    <div class="export-buttons">
-                        <a href="/monitor/{{ session_id }}" class="nav-link monitor-btn">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                            Monitor
-                        </a>
-                        <button onclick="exportFile('csv', '{{ session_id }}')">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            CSV
-                        </button>
-                        <button onclick="exportFile('xlsx', '{{ session_id }}')">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Excel
-                        </button>
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">Before Balancing Chart</h3>
+            
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="chart-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Before Balancing
                     </div>
                 </div>
-                <div class="table-wrapper">
-                    <div class="table-scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Composite Operations</th>
-                                    <th>Serial/Id</th>
-                                    <th>Operations</th>
-                                    <th>Machine</th>
-                                    <th>Predecessor</th>
-                                    <th>Basic<br>Time</th>
-                                    <th>Combined Basic<br>Time</th>
-                                    <th>Balancing<br>SAM</th>
-                                    <th>M/P</th>
-                                    <th>Pitch Time</th>
-                                    <th>UCL</th>
-                                    <th>LCL</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in rows %}
-                                <tr>
-                                    <td>{{ row['Composite Operations'] }}</td>
-                                    <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
-                                    <td class="smart-break-cell">{{ row['Operations'] }}</td>
-                                    <td class="smart-break-cell">{{ row['Machine'] }}</td>
-                                    <td class="smart-break-cell">{{ row['Predecessor'] }}</td>
-                                    <td class="smart-break-cell">{{ row['Basic Time'] }}</td>
-                                    <td>{{ row['Combined Basic Time'] }}</td>
-                                    <td>{{ row['Balancing SAM'] }}</td>
-                                    <td>{{ row['M/P'] }}</td>
-                                    <td>{{ row['Pitch Time'] }}</td>
-                                    <td>{{ row['UCL'] }}</td>
-                                    <td>{{ row['LCL'] }}</td>
-                                    <td>
-                                        {% if 'OK' in row['Status'] %}
-                                            <span class="status-badge status-ok">OK</span>
-                                        {% elif 'UCL' in row['Status'] %}
-                                            <span class="status-badge status-ucl">> UCL</span>
-                                        {% else %}
-                                            <span class="status-badge status-lcl">< LCL</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                <div class="chart-container">
+                    <canvas id="beforeBalanceChart"></canvas>
+                </div>
+            </div>
+
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">After Balancing Chart</h3>
+            
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="chart-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        After Balancing
                     </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="balanceChart"></canvas>
                 </div>
             </div>
         </section>
@@ -1474,554 +2350,44 @@ HTML_TEMPLATE = """
             document.documentElement.setAttribute('data-theme', savedTheme);
             document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
 
-            // Set active nav link based on current path
-            const currentPath = window.location.pathname;
-            const navLinks = document.querySelectorAll('.nav-link');
-            navLinks.forEach(link => {
-                link.classList.remove('active');
-                if (link.getAttribute('href') === currentPath) {
-                    link.classList.add('active');
-                }
-            });
-
             // Initialize pitch time field visibility
             togglePitchTimeInput();
 
-            // Handle smart + breaking for specific columns (Serial/Id, Operations, Machine, Predecessor, Basic Time)
-            const smartBreakCells = document.querySelectorAll('.smart-break-cell');
-            smartBreakCells.forEach(cell => {
-                const text = cell.textContent;
-                if (text.includes('+')) {
-                    // Smart breaking: (a + b) + c breaks as (a + b) on line 1, + on line 2, c on line 3
-                    let result = '';
-                    let parenDepth = 0;
-                    let i = 0;
-                    let lastNonSpaceIndex = -1;
-                    
-                    while (i < text.length) {
-                        const char = text[i];
-                        
-                        if (char === '(') {
-                            parenDepth++;
-                            result += char;
-                        } else if (char === ')') {
-                            parenDepth--;
-                            result += char;
-                        } else if (char === '+' && parenDepth === 0) {
-                        // Only break if + is outside parentheses
-                        // Break before + if there's non-space content before it
-                        if (lastNonSpaceIndex >= 0) {
-                            // Remove trailing spaces from Line 1
-                            result = result.trimEnd();
-                            result += '<br>';
-                        }
-                        // Put + on its own line
-                        result += '+<br>';
-                        lastNonSpaceIndex = -1;
-                        
-                        // Skip any whitespace after the + (for Line 3)
-                        while (i + 1 < text.length && text[i + 1].trim() === '') {
-                            i++;
-                        }
-                    } else {
-                            result += char;
-                            if (char.trim() !== '') {
-                                lastNonSpaceIndex = i;
-                            }
-                        }
-                        i++;
-                    }
-                    
-                    cell.innerHTML = result;
-                }
-            });
+            // Load charts if session_id is available
+            {% if session_id %}
+            loadBeforeChart('{{ session_id }}');
+            loadChart('{{ session_id }}');
+            {% endif %}
         });
 
         // Export function
         function exportFile(format, sessionId) {
             window.location.href = `/api/export/${format}/${sessionId}`;
         }
-    </script>
-</body>
-</html>
-"""
 
-MONITOR_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Line Monitor</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
-    <style>
-        :root {
-            --bg: #0f1419;
-            --surface: #1a2332;
-            --surface-2: #243044;
-            --border: rgba(255, 255, 255, 0.08);
-            --text: #e8edf4;
-            --text-muted: #8b9cb3;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-            --success: #22c55e;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-            --radius: 12px;
-            --radius-sm: 8px;
-            --transition: 0.2s ease;
-        }
-
-        [data-theme="light"] {
-            --bg: #f1f5f9;
-            --surface: #ffffff;
-            --surface-2: #f8fafc;
-            --border: rgba(15, 23, 42, 0.1);
-            --text: #0f172a;
-            --text-muted: #64748b;
-            --accent: #2563eb;
-            --accent-hover: #1d4ed8;
-            --success: #16a34a;
-            --warning: #d97706;
-            --danger: #dc2626;
-            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
-        }
-
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            transition: background var(--transition), color var(--transition);
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 32px 24px;
-        }
-
-        /* Navbar */
-        .navbar {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 12px 20px;
-            margin-bottom: 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: var(--shadow);
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 8px;
-        }
-
-        .nav-link {
-            background: var(--surface-2);
-            color: var(--text-muted);
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: var(--radius-sm);
-            font-size: 13px;
-            font-weight: 500;
-            transition: all var(--transition);
-            border: 1px solid transparent;
-        }
-
-        .nav-link:hover {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-
-        .nav-link.active {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-
-        .theme-toggle {
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-muted);
-            transition: all var(--transition);
-        }
-
-        .theme-toggle:hover {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
-        }
-
-        /* Chart Section */
-        .chart-section {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
-            margin-bottom: 24px;
-            box-shadow: var(--shadow);
-        }
-
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
-
-        .chart-title {
-            font-size: 24px;
-            font-weight: 600;
-            color: var(--accent);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .chart-title svg {
-            width: 28px;
-            height: 28px;
-        }
-
-        .chart-button {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: var(--radius-sm);
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all var(--transition);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .chart-button:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-
-        .chart-button svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .chart-container {
-            position: relative;
-            height: 400px;
-            width: 100%;
-            background: var(--surface);
-            border-radius: var(--radius-sm);
-            padding: 16px;
-        }
-
-        .chart-container canvas {
-            background: var(--surface);
-            border-radius: var(--radius-sm);
-        }
-
-        /* Metrics Section */
-        .metrics-section {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .chart-buttons {
-            display: flex;
-            gap: 8px;
-        }
-
-        .metric-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            text-align: center;
-            box-shadow: var(--shadow);
-        }
-
-        .metric-label {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .metric-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--accent);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .metric-sub {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 4px;
-        }
-
-        /* Status Section */
-        .status {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            text-align: center;
-            margin-top: 40px;
-        }
-
-        .status p {
-            color: var(--text-muted);
-            font-size: 16px;
-        }
-
-        .status-link {
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .status-link:hover {
-            text-decoration: underline;
-        }
-
-        @media (max-width: 768px) {
-            .navbar {
-                flex-direction: column;
-                gap: 12px;
-            }
-
-            .nav-links {
-                width: 100%;
-                justify-content: center;
-            }
-
-            .chart-header {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .chart-container {
-                height: 300px;
-            }
-
-            .metrics-section {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <nav class="navbar">
-            <div class="nav-links">
-                <a href="/" class="nav-link">Home</a>
-                <a href="/monitor{% if session_id %}/{{ session_id }}{% endif %}" class="nav-link active">Monitor</a>
-            </div>
-            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
-        </nav>
-
-        {% if has_data %}
-        <div class="metrics-section">
-            <div class="metric-card">
-                <div class="metric-label">Line Balancing Rate</div>
-                <div class="metric-value" id="lbrValue">--%</div>
-                <div class="metric-sub">Efficiency metric</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Pitch Time</div>
-                <div class="metric-value">
-                    <span id="pitchValue">--s</span>
-                    <span id="pitchSourceBadge" class="pitch-source-badge auto">Auto</span>
-                </div>
-                <div class="metric-sub">Target time per workstation</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">UCL</div>
-                <div class="metric-value" id="uclValue" style="color: var(--danger)">--s</div>
-                <div class="metric-sub">Upper Control Limit</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">LCL</div>
-                <div class="metric-value" id="lclValue" style="color: var(--warning)">--s</div>
-                <div class="metric-sub">Lower Control Limit</div>
-            </div>
-        </div>
-
-        <div class="chart-section">
-            <div class="chart-header">
-                <div class="chart-title">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                    Line Balancing Chart
-                </div>
-                <div class="chart-buttons">
-                    <button class="chart-button" onclick="saveChart()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Save Chart
-                    </button>
-                    <button class="chart-button" onclick="goBack()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                        Back to Home
-                    </button>
-                </div>
-            </div>
-            <div class="chart-container">
-                <canvas id="balanceChart"></canvas>
-            </div>
-        </div>
-        {% else %}
-        <div class="status">
-            <p>Floor monitoring view - real-time line balancing visualization</p>
-            <p style="margin-top: 10px; font-size: 14px;">
-                <a href="/" class="status-link">Load a calculation from the main view</a> to display the chart
-            </p>
-        </div>
-        {% endif %}
-    </div>
-
-    <script>
-        // Theme Toggle
-        function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme') || 'dark';
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
-            
-            // Update chart colors if chart exists
-            if (window.balanceChartInstance) {
-                const isDark = newTheme === 'dark';
-                const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
-                const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-                
-                window.balanceChartInstance.options.plugins.legend.labels.color = textColor;
-                window.balanceChartInstance.options.plugins.tooltip.backgroundColor = '#1a2332'; // Always dark background
-                window.balanceChartInstance.options.plugins.tooltip.titleColor = '#ffffff'; // Always white in tooltip
-                window.balanceChartInstance.options.plugins.tooltip.bodyColor = '#ffffff'; // Always white in tooltip
-                window.balanceChartInstance.options.plugins.tooltip.borderColor = gridColor;
-                window.balanceChartInstance.options.scales.x.ticks.color = textColor;
-                window.balanceChartInstance.options.scales.x.grid.color = gridColor;
-                window.balanceChartInstance.options.scales.y.ticks.color = textColor;
-                window.balanceChartInstance.options.scales.y.grid.color = gridColor;
-                window.balanceChartInstance.options.scales.y.title.color = textColor;
-                
-                window.balanceChartInstance.update();
-            }
-        }
-
-        // Restore theme on load
-        window.addEventListener('DOMContentLoaded', function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            document.documentElement.setAttribute('data-theme', savedTheme);
-            document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
-
-            // Set active nav link based on current path
-            const currentPath = window.location.pathname;
-            const navLinks = document.querySelectorAll('.nav-link');
-            navLinks.forEach(link => {
-                link.classList.remove('active');
-                if (link.getAttribute('href') === currentPath) {
-                    link.classList.add('active');
+        async function loadBeforeChart(sessionId) {
+            try {
+                const response = await fetch(`/api/before-chart-data/${sessionId}`);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    if (response.status === 404) {
+                        // Session expired, redirect to home with message
+                        alert(errorData.message || 'Session expired. Please reload the data.');
+                        window.location.href = '/';
+                        return;
+                    }
+                    throw new Error(errorData.error || 'Failed to load before chart data');
                 }
-            });
-
-            // Load chart if session_id is available
-            {% if session_id %}
-            loadChart('{{ session_id }}');
-            {% endif %}
-        });
-
-        function goBack() {
-            window.location.href = '/';
-        }
-
-        function saveChart() {
-            if (!window.balanceChartInstance) {
-                alert('Chart not loaded yet');
-                return;
+                
+                const data = await response.json();
+                
+                // Create before chart
+                createBeforeChart(data);
+            } catch (error) {
+                console.error('Error loading before chart:', error);
+                alert('Error loading before chart data: ' + error.message);
+                window.location.href = '/';
             }
-            
-            // Save current colors
-            const originalColors = {
-                textColor: window.balanceChartInstance.options.scales.x.ticks.color,
-                legendColor: window.balanceChartInstance.options.plugins.legend.labels.color,
-                yTitleColor: window.balanceChartInstance.options.scales.y.title.color,
-                yTicksColor: window.balanceChartInstance.options.scales.y.ticks.color,
-                gridColor: window.balanceChartInstance.options.scales.x.grid.color
-            };
-            
-            // Set light mode colors with grey text for export
-            window.balanceChartInstance.options.scales.x.ticks.color = '#64748b';
-            window.balanceChartInstance.options.plugins.legend.labels.color = '#64748b';
-            window.balanceChartInstance.options.scales.y.title.color = '#64748b';
-            window.balanceChartInstance.options.scales.y.ticks.color = '#64748b';
-            window.balanceChartInstance.options.scales.x.grid.color = 'rgba(0, 0, 0, 0.1)';
-            window.balanceChartInstance.options.scales.y.grid.color = 'rgba(0, 0, 0, 0.1)';
-            
-            // Save current background color
-            const canvas = document.getElementById('balanceChart');
-            const originalBg = canvas.style.background;
-            
-            // Set white background for export
-            canvas.style.background = '#ffffff';
-            
-            // Force update
-            window.balanceChartInstance.update();
-            
-            // Small delay to ensure rendering is complete
-            setTimeout(() => {
-                const link = document.createElement('a');
-                link.download = 'line-balancing-chart.png';
-                link.href = canvas.toDataURL('image/png');
-                link.click();
-                
-                // Restore original colors
-                window.balanceChartInstance.options.scales.x.ticks.color = originalColors.textColor;
-                window.balanceChartInstance.options.plugins.legend.labels.color = originalColors.legendColor;
-                window.balanceChartInstance.options.scales.y.title.color = originalColors.yTitleColor;
-                window.balanceChartInstance.options.scales.y.ticks.color = originalColors.yTicksColor;
-                window.balanceChartInstance.options.scales.x.grid.color = originalColors.gridColor;
-                window.balanceChartInstance.options.scales.y.grid.color = originalColors.gridColor;
-                
-                // Restore original background
-                canvas.style.background = originalBg;
-                
-                // Force update to restore
-                window.balanceChartInstance.update();
-            }, 100);
         }
 
         async function loadChart(sessionId) {
@@ -2040,20 +2406,6 @@ MONITOR_TEMPLATE = """
                 
                 const data = await response.json();
                 
-                // Update metrics
-                document.getElementById('lbrValue').textContent = data.line_balancing_rate.toFixed(1) + '%';
-                document.getElementById('pitchValue').textContent = data.pitch_time.toFixed(1) + 's';
-                
-                // Update pitch time source indicator
-                const pitchSourceBadge = document.getElementById('pitchSourceBadge');
-                if (pitchSourceBadge) {
-                    pitchSourceBadge.textContent = data.pitch_time_source === 'manual' ? 'Manual' : 'Auto';
-                    pitchSourceBadge.className = 'pitch-source-badge ' + (data.pitch_time_source === 'manual' ? 'manual' : 'auto');
-                }
-                
-                document.getElementById('uclValue').textContent = data.ucl.toFixed(1) + 's';
-                document.getElementById('lclValue').textContent = data.lcl.toFixed(1) + 's';
-                
                 // Create chart
                 createChart(data);
             } catch (error) {
@@ -2061,6 +2413,185 @@ MONITOR_TEMPLATE = """
                 alert('Error loading chart data: ' + error.message);
                 window.location.href = '/';
             }
+        }
+
+        function createBeforeChart(chartData) {
+            const ctx = document.getElementById('beforeBalanceChart').getContext('2d');
+            
+            // Get theme colors - grey text for light mode, white for dark mode
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            
+            window.beforeBalanceChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.operations,
+                    datasets: [{
+                        label: 'Basic Time (SAM)',
+                        data: chartData.basic_times,
+                        backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: textColor,
+                                font: {
+                                    size: 13,
+                                    weight: 500
+                                }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1a2332', // Always dark background for tooltip
+                            titleColor: '#ffffff', // Always white in tooltip
+                            bodyColor: '#ffffff', // Always white in tooltip
+                            borderColor: gridColor,
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: true,
+                            titleFont: {
+                                size: 11,
+                                weight: 'bold'
+                            },
+                            bodyFont: {
+                                size: 12
+                            },
+                            callbacks: {
+                                title: function(context) {
+                                    // Show full operation name in tooltip
+                                    return context[0].label;
+                                },
+                                label: function(context) {
+                                    return `Basic Time (SAM): ${context.raw.toFixed(1)}s`;
+                                }
+                            }
+                        },
+                        annotation: {
+                            annotations: {
+                                uclLine: {
+                                    type: 'line',
+                                    yMin: chartData.ucl,
+                                    yMax: chartData.ucl,
+                                    borderColor: 'rgb(239, 68, 68)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: 'UCL',
+                                        position: 'end',
+                                        backgroundColor: 'rgb(239, 68, 68)',
+                                        color: 'white',
+                                        font: {
+                                            size: 11,
+                                            weight: 'bold'
+                                        },
+                                        padding: 6
+                                    }
+                                },
+                                pitchLine: {
+                                    type: 'line',
+                                    yMin: chartData.pitch_time,
+                                    yMax: chartData.pitch_time,
+                                    borderColor: 'rgb(34, 197, 94)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: 'Pitch Time',
+                                        position: 'end',
+                                        backgroundColor: 'rgb(34, 197, 94)',
+                                        color: 'white',
+                                        font: {
+                                            size: 11,
+                                            weight: 'bold'
+                                        },
+                                        padding: 6
+                                    }
+                                },
+                                lclLine: {
+                                    type: 'line',
+                                    yMin: chartData.lcl,
+                                    yMax: chartData.lcl,
+                                    borderColor: 'rgb(249, 115, 22)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: 'LCL',
+                                        position: 'end',
+                                        backgroundColor: 'rgb(249, 115, 22)',
+                                        color: 'white',
+                                        font: {
+                                            size: 11,
+                                            weight: 'bold'
+                                        },
+                                        padding: 6
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: gridColor
+                            },
+                            ticks: {
+                                color: textColor,
+                                font: {
+                                    size: 9
+                                },
+                                // Show all labels without skipping
+                                autoSkip: false,
+                                maxRotation: 45,
+                                minRotation: 45,
+                                callback: function(value, index, values) {
+                                    const label = this.getLabelForValue(value);
+                                    // Truncate very long labels for display
+                                    if (label.length > 25) {
+                                        return label.substring(0, 25) + '...';
+                                    }
+                                    return label;
+                                }
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: gridColor
+                            },
+                            ticks: {
+                                color: textColor,
+                                font: {
+                                    size: 12
+                                },
+                                callback: function(value) {
+                                    return value.toFixed(1) + 's';
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time (seconds)',
+                                color: textColor,
+                                font: {
+                                    size: 13,
+                                    weight: 500
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         function createChart(chartData) {
