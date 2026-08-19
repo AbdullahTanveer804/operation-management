@@ -74,7 +74,7 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     # Step 1: Sort operations by ID
     sorted_ops = sort_by_id(operations)
     
-    # Step 2: Calculate Pitch Time based on method
+    # Step 2: Calculate Pitch Time / Takt Time based on method
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
             raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
@@ -116,10 +116,10 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     total_basic_time = sum(op.basic_time for op in sorted_ops) / 60  # Convert seconds to minutes
     
     # Step 4.9: Calculate before-balancing metrics
-    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, tolerance)
+    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, tolerance, pitch_time_method, manual_pitch_time)
     
     # Step 5: Build report
-    report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time)
+    report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time, pitch_time_source)
     
     return {
         "operations": operations,
@@ -142,7 +142,7 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     }
 
 
-def generate_chart_image(workstations, pitch_time, ucl, lcl) -> io.BytesIO:
+def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated") -> io.BytesIO:
     """
     Generate a bar chart image using matplotlib that matches the client-side Chart.js styling.
     
@@ -151,6 +151,7 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl) -> io.BytesIO:
         pitch_time: Target pitch time
         ucl: Upper control limit
         lcl: Lower control limit
+        pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
     
     Returns:
         BytesIO object containing the PNG image
@@ -168,6 +169,12 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl) -> io.BytesIO:
         workstation_names.append(op_names)
         balancing_sam.append(ws.balancing_sam)
     
+    # Determine pitch time label based on source
+    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+        pitch_time_label = "Takt Time"
+    else:
+        pitch_time_label = "Pitch Time"
+    
     # Create figure with appropriate size
     fig, ax = plt.subplots(figsize=(18, 9))
     
@@ -180,7 +187,7 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl) -> io.BytesIO:
     
     # Add reference lines
     ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2, label='UCL')
-    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2, label='Pitch Time')
+    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2, label=pitch_time_label)
     ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2, label='LCL')
     
     # Set labels and title
@@ -252,7 +259,7 @@ def index():
                 # Validate based on pitch time method
                 if pitch_time_method == "manual":
                     if manual_pitch_time is None or manual_pitch_time <= 0:
-                        error = "Manual pitch time must be provided and positive when method is 'manual'."
+                        error = "Manual Takt time must be provided and positive when method is 'manual'."
                 elif pitch_time_method == "target":
                     if production_target is None or production_target <= 0:
                         error = "Production target must be provided and positive when method is 'target'."
@@ -261,11 +268,6 @@ def index():
                 else:  # auto
                     # No validation needed for auto method
                     pass
-                
-                # Additional validation for line efficiency parameters (only if not using target method)
-                if not error and pitch_time_method != "target":
-                    if (production_target is not None and production_target <= 0) or (shift_time_minutes is not None and shift_time_minutes <= 0):
-                        error = "Production target and shift time must be positive numbers if provided."
                 
                 if not error:
                     # Read operations from file
@@ -299,9 +301,11 @@ def index():
                                 for row in rows:
                                     row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
                                     row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
-                                    # Format new columns if they are numeric
-                                    if row["Pitch Time"]:
+                                    # Format new columns if they are numeric - handle dynamic column name
+                                    if "Pitch Time" in row and row["Pitch Time"]:
                                         row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
+                                    elif "Takt Time" in row and row["Takt Time"]:
+                                        row["Takt Time"] = f"{row['Takt Time']:.1f}"
                                     if row["UCL"]:
                                         row["UCL"] = f"{row['UCL']:.1f}"
                                     if row["LCL"]:
@@ -354,7 +358,8 @@ def export(format: str, session_id: str):
             calc["workstations"],
             calc["pitch_time"],
             calc["ucl"],
-            calc["lcl"]
+            calc["lcl"],
+            calc.get("pitch_time_source", "calculated")
         )
         
         # Create Excel workbook with openpyxl
@@ -413,16 +418,19 @@ def export(format: str, session_id: str):
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
-        # 7. Pitch Time
+        # 7. Pitch Time / Takt Time
         pitch_time_source_tag = calc.get('pitch_time_source', 'calculated')
         if pitch_time_source_tag == "manual":
             source_display = "(Manual)"
+            time_display_name = "Takt Time"
         elif pitch_time_source_tag == "By Target":
             source_display = "(By Target)"
+            time_display_name = "Takt Time"
         else:  # "calculated" or any other value
             source_display = "(Auto)"
+            time_display_name = "Pitch Time"
         
-        worksheet[f'A{current_row}'] = f"Pitch Time: {calc['pitch_time']:.1f}s {source_display}"
+        worksheet[f'A{current_row}'] = f"{time_display_name}: {calc['pitch_time']:.1f}s {source_display}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
@@ -672,6 +680,7 @@ def get_before_chart_data(session_id: str):
         "operations": operation_names,
         "basic_times": basic_times,
         "pitch_time": before_metrics["pitch_time"],
+        "pitch_time_source": before_metrics.get("pitch_time_source", "calculated"),
         "ucl": before_metrics["ucl"],
         "lcl": before_metrics["lcl"],
         "balancing_rate": before_metrics["balancing_rate"],
@@ -704,9 +713,11 @@ def layout(session_id: str = None):
             for row in rows:
                 row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
                 row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
-                # Format new columns if they are numeric
-                if row["Pitch Time"]:
+                # Format new columns if they are numeric - handle dynamic column name
+                if "Pitch Time" in row and row["Pitch Time"]:
                     row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
+                elif "Takt Time" in row and row["Takt Time"]:
+                    row["Takt Time"] = f"{row['Takt Time']:.1f}"
                 if row["UCL"]:
                     row["UCL"] = f"{row['UCL']:.1f}"
                 if row["LCL"]:
@@ -1234,7 +1245,7 @@ LAYOUT_TEMPLATE = """
                 <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
             </div>
             <div class="metric-card">
-                <div class="label">Pitch Time</div>
+                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
                 <div class="value">
                     {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                     {% if result.pitch_time_source == "manual" %}
@@ -1288,7 +1299,7 @@ LAYOUT_TEMPLATE = """
                                 <th>Combined Basic<br>Time</th>
                                 <th>Balancing<br>SAM</th>
                                 <th>M/P</th>
-                                <th>Pitch Time</th>
+                                <th>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</th>
                                 <th>UCL</th>
                                 <th>LCL</th>
                                 <th>Status</th>
@@ -1306,7 +1317,7 @@ LAYOUT_TEMPLATE = """
                                 <td>{{ row['Combined Basic Time'] }}</td>
                                 <td>{{ row['Balancing SAM'] }}</td>
                                 <td>{{ row['M/P'] }}</td>
-                                <td>{{ row['Pitch Time'] }}</td>
+                                <td>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}{{ row['Takt Time'] }}{% else %}{{ row['Pitch Time'] }}{% endif %}</td>
                                 <td>{{ row['UCL'] }}</td>
                                 <td>{{ row['LCL'] }}</td>
                                 <td>
@@ -1507,6 +1518,10 @@ HTML_TEMPLATE = """
             display: flex;
             flex-direction: column;
             gap: 8px;
+        }
+
+        .field.hidden {
+            display: none;
         }
 
         label {
@@ -2092,28 +2107,28 @@ HTML_TEMPLATE = """
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
                 </div>
                 <div class="field">
-                    <label>Pitch Time Method</label>
+                    <label>Time Method</label>
                     <select name="pitch_time_method" id="pitch_time_method" onchange="togglePitchTimeInput()">
-                        <option value="auto">Auto-calculate from file</option>
-                        <option value="manual">Manual input</option>
-                        <option value="target">Calculate from target</option>
+                        <option value="auto">Pitch time</option>
+                        <option value="manual">Takt time (Manual)</option>
+                        <option value="target">Takt time (By target)</option>
                     </select>
                 </div>
                 <div class="field" id="pitch_time_field">
-                    <label>Pitch Time (optional)</label>
-                    <input type="number" name="pitch_time" id="pitch_time_input" value="" placeholder="Auto-calculate if empty" min="0" step="0.1">
+                    <label>Time Value</label>
+                    <input type="number" name="pitch_time" id="pitch_time_input" value="" placeholder="Time in seconds" min="0" step="0.1">
                 </div>
                 <div class="field">
-                    <label>Tolerance</label>
+                    <label>Tolerance %</label>
                     <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
                 </div>
-                <div class="field">
-                    <label>Production Target (optional)</label>
-                    <input type="number" name="production_target" value="" placeholder="Number of units" min="0" step="1">
+                <div class="field" id="production_target_field">
+                    <label>Production Target</label>
+                    <input type="number" name="production_target" id="production_target_input" value="" placeholder="Number of units" min="0" step="1">
                 </div>
-                <div class="field">
-                    <label>Shift Time (minutes, optional)</label>
-                    <input type="number" name="shift_time" value="" placeholder="Shift duration in minutes" min="0" step="1">
+                <div class="field" id="shift_time_field">
+                    <label>Shift Time</label>
+                    <input type="number" name="shift_time" id="shift_time_input" value="420" placeholder="Shift duration in minutes" min="0" step="1">
                 </div>
                 <div class="field">
                     <label>&nbsp;</label>
@@ -2179,10 +2194,16 @@ HTML_TEMPLATE = """
                     <div class="value">{{ result.before_metrics.total_manpower }}</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Pitch Time</div>
+                    <div class="label">{% if result.before_metrics.pitch_time_source == "manual" or result.before_metrics.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
                     <div class="value">
                         {{ "%.1f"|format(result.before_metrics.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
+                        {% if result.before_metrics.pitch_time_source == "manual" %}
+                        <span class="pitch-source-badge manual">Manual</span>
+                        {% elif result.before_metrics.pitch_time_source == "By Target" %}
+                        <span class="pitch-source-badge target">By Target</span>
+                        {% else %}
                         <span class="pitch-source-badge auto">Auto</span>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="metric-card">
@@ -2244,7 +2265,7 @@ HTML_TEMPLATE = """
                     <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Pitch Time</div>
+                    <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
                     <div class="value">
                         {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                         {% if result.pitch_time_source == "manual" %}
@@ -2333,14 +2354,26 @@ HTML_TEMPLATE = """
             const method = document.getElementById('pitch_time_method').value;
             const pitchTimeField = document.getElementById('pitch_time_field');
             const pitchTimeInput = document.getElementById('pitch_time_input');
+            const productionTargetField = document.getElementById('production_target_field');
+            const shiftTimeField = document.getElementById('shift_time_field');
             
             if (method === 'manual') {
                 pitchTimeField.style.display = 'flex';
                 pitchTimeInput.required = true;
-            } else {
+                productionTargetField.style.display = 'none';
+                shiftTimeField.style.display = 'none';
+            } else if (method === 'target') {
                 pitchTimeField.style.display = 'none';
                 pitchTimeInput.required = false;
                 pitchTimeInput.value = '';
+                productionTargetField.style.display = 'flex';
+                shiftTimeField.style.display = 'flex';
+            } else { // auto
+                pitchTimeField.style.display = 'none';
+                pitchTimeInput.required = false;
+                pitchTimeInput.value = '';
+                productionTargetField.style.display = 'none';
+                shiftTimeField.style.display = 'none';
             }
         }
 
@@ -2422,6 +2455,9 @@ HTML_TEMPLATE = """
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
             const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            
+            // Determine pitch time label based on source
+            const pitchTimeLabel = (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target") ? 'Takt Time' : 'Pitch Time';
             
             window.beforeBalanceChartInstance = new Chart(ctx, {
                 type: 'bar',
@@ -2507,7 +2543,7 @@ HTML_TEMPLATE = """
                                     borderDash: [5, 5],
                                     label: {
                                         display: true,
-                                        content: 'Pitch Time',
+                                        content: pitchTimeLabel,
                                         position: 'end',
                                         backgroundColor: 'rgb(34, 197, 94)',
                                         color: 'white',
@@ -2602,6 +2638,9 @@ HTML_TEMPLATE = """
             const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             
+            // Determine pitch time label based on source
+            const pitchTimeLabel = (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target") ? 'Takt Time' : 'Pitch Time';
+            
             window.balanceChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -2686,7 +2725,7 @@ HTML_TEMPLATE = """
                                     borderDash: [5, 5],
                                     label: {
                                         display: true,
-                                        content: 'Pitch Time',
+                                        content: pitchTimeLabel,
                                         position: 'end',
                                         backgroundColor: 'rgb(34, 197, 94)',
                                         color: 'white',

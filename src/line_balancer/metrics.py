@@ -1,7 +1,10 @@
 """
-STEP 3: CALCULATE PITCH TIME
+STEP 3: CALCULATE PITCH TIME / TAKT TIME
 STEP 4: CALCULATE TOLERANCE BANDS (UCL / LCL)
 STEP 6: CALCULATE LINE BALANCING RATE
+
+Note: When time method is manual or calculated by target, it's called "Takt Time".
+When auto-calculated from operations, it's called "Pitch Time".
 """
 
 from typing import List, Tuple
@@ -19,6 +22,7 @@ def calculate_pitch_time(operations: List[Operation]) -> float:
     Pitch_Time = Total_Basic_Time / Total_Operation_Count
     
     Calculates pitch time based on operations from the input file.
+    Note: This is for auto-calculation only, so it's called "Pitch Time".
     """
     total_basic_time = sum(op.basic_time for op in operations)
     count = len(operations)
@@ -30,6 +34,9 @@ def calculate_pitch_time(operations: List[Operation]) -> float:
 def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float, tolerance: float = DEFAULT_TOLERANCE) -> float:
     """
     Calculate pitch time from production target and shift time.
+    
+    Note: When calculated from target, this is called "Takt Time" in the UI,
+    though the function name remains for backward compatibility.
     
     Formula:
     - UCL = (Production Target / Shift time) * 60

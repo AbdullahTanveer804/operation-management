@@ -37,7 +37,7 @@ def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
         return "OK"
 
 
-def build_report_dataframe(workstations: List[Workstation], ucl: float = None, lcl: float = None, pitch_time: float = None) -> pd.DataFrame:
+def build_report_dataframe(workstations: List[Workstation], ucl: float = None, lcl: float = None, pitch_time: float = None, pitch_time_source: str = "calculated") -> pd.DataFrame:
     """
     Build a DataFrame report with all workstations and their details.
     
@@ -48,7 +48,7 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
     4. Machine - Machine types joined with " + " for combined (e.g., "M1 + M2")
     5. Predecessor - Predecessor IDs joined with " + " for combined (e.g., "1 + 18")
     6. Basic Time - Individual basic times joined with " + " for combined
-    7. Pitch Time - Constant pitch time value (repeated for each row)
+    7. Pitch Time / Takt Time - Constant pitch/takt time value (repeated for each row)
     8. UCL - Constant Upper Control Limit value (repeated for each row)
     9. LCL - Constant Lower Control Limit value (repeated for each row)
     10. Combined Basic Time - Total time for the workstation
@@ -61,11 +61,18 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         ucl: Upper Control Limit (optional, for status determination and column)
         lcl: Lower Control Limit (optional, for status determination and column)
         pitch_time: Pitch time (optional, for column)
+        pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
     
     Returns:
         DataFrame with formatted report data
     """
     rows = []
+    
+    # Determine column name based on pitch time source
+    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+        pitch_time_column_name = "Takt Time"
+    else:
+        pitch_time_column_name = "Pitch Time"
     
     for ws_num, ws in enumerate(workstations, start=1):
         # Build combined representations using " + " as separator
@@ -106,7 +113,7 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
             "Combined Basic Time": round(combined_basic_time, 1),
             "Balancing SAM": round(ws.balancing_sam, 1),
             "M/P": ws.manpower,
-            "Pitch Time": round(pitch_time, 1) if pitch_time is not None else "",
+            pitch_time_column_name: round(pitch_time, 1) if pitch_time is not None else "",
             "UCL": round(ucl, 1) if ucl is not None else "",
             "LCL": round(lcl, 1) if lcl is not None else "",
             "Status": status,
@@ -144,7 +151,7 @@ def print_summary(
     4. Total Basic Time (SAM)
     5. Line Efficiency%
     6. Total ManPower
-    7. Pitch Time
+    7. Pitch Time / Takt Time (based on method)
     8. Tolerance
     9. UCL
     10. LCL
@@ -163,13 +170,13 @@ def print_summary(
         operations: List of all operations (for total basic time calculation)
         balance_delay: Optional balance delay percentage
         line_efficiency: Optional line efficiency percentage
-        pitch_time_source: Source of pitch time calculation
+        pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
         smoothing_index: Optional smoothing index in minutes
         tolerance: Tolerance percentage (default 0.15 for 15%)
         production_target: Optional production target
         shift_time_minutes: Optional shift time in minutes
     """
-    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
+    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time, pitch_time_source=pitch_time_source)
     
     print("\n" + "=" * 120)
     print("LINE BALANCING RESULTS")
@@ -187,7 +194,12 @@ def print_summary(
     if line_efficiency is not None:
         print(f"Line Efficiency%: {line_efficiency:.1f}%")
     print(f"Total ManPower: {sum(ws.manpower for ws in workstations)}")
-    print(f"Pitch Time: {pitch_time:.1f}s ({pitch_time_source})")
+    # Determine display name based on pitch time source
+    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+        time_display_name = "Takt Time"
+    else:
+        time_display_name = "Pitch Time"
+    print(f"{time_display_name}: {pitch_time:.1f}s ({pitch_time_source})")
     if tolerance != 0.15:
         print(f"Tolerance (Manual): {tolerance * 100:.1f}%")
     else:
@@ -209,9 +221,11 @@ def print_summary(
             print(f"    Error: {op.flagged}")
 
 
-def export_report(workstations: List[Workstation], filepath: str, pitch_time: float = None, ucl: float = None, lcl: float = None) -> None:
+def export_report(workstations: List[Workstation], filepath: str, pitch_time: float = None, ucl: float = None, lcl: float = None, pitch_time_source: str = "calculated") -> None:
     """
     Export the report to a CSV or Excel file.
+    
+    Note: The column name will be "Takt Time" for manual/target methods, "Pitch Time" for auto.
     
     Args:
         workstations: List of Workstation objects
@@ -219,8 +233,9 @@ def export_report(workstations: List[Workstation], filepath: str, pitch_time: fl
         pitch_time: Pitch time value (optional, for column)
         ucl: Upper Control Limit (optional, for column)
         lcl: Lower Control Limit (optional, for column)
+        pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
     """
-    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time)
+    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time, pitch_time_source=pitch_time_source)
     
     if filepath.lower().endswith(".xlsx"):
         df.to_excel(filepath, index=False)
