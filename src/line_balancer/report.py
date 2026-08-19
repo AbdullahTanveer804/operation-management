@@ -223,13 +223,13 @@ def print_summary(
 
 def export_report(workstations: List[Workstation], filepath: str, pitch_time: float = None, ucl: float = None, lcl: float = None, pitch_time_source: str = "calculated") -> None:
     """
-    Export the report to a CSV or Excel file.
+    Export the report to an Excel file.
     
     Note: The column name will be "Takt Time" for manual/target methods, "Pitch Time" for auto.
     
     Args:
         workstations: List of Workstation objects
-        filepath: Where to save the file (must end in .csv or .xlsx)
+        filepath: Where to save the file (must end in .xlsx)
         pitch_time: Pitch time value (optional, for column)
         ucl: Upper Control Limit (optional, for column)
         lcl: Lower Control Limit (optional, for column)
@@ -240,4 +240,4 @@ def export_report(workstations: List[Workstation], filepath: str, pitch_time: fl
     if filepath.lower().endswith(".xlsx"):
         df.to_excel(filepath, index=False)
     else:
-        df.to_csv(filepath, index=False)
+        raise ValueError("Export format must be .xlsx")

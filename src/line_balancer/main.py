@@ -3,7 +3,7 @@ Line Balancing Optimizer - main entry point.
 Runs STEP 1 through STEP 7 of the workflow end to end.
 
 Usage:
-    python -m line_balancer.main data/sample_operations.csv --export report.csv
+    python -m line_balancer.main data/sample_operations.csv --export report.xlsx
 """
 
 import argparse
@@ -140,7 +140,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Line Balancing Optimizer")
     parser.add_argument("input", nargs="?", default=None, help="Path to CSV/XLSX with operation data")
     parser.add_argument("--tolerance", type=float, default=0.15, help="UCL/LCL tolerance, default 0.15 (15%%)")
-    parser.add_argument("--export", type=str, default=None, help="Export report to a CSV or XLSX path")
+    parser.add_argument("--export", type=str, default=None, help="Export report to a XLSX path")
     parser.add_argument("--production-target", type=int, default=None, help="Production target (number of units) for line efficiency calculation and pitch time calculation")
     parser.add_argument("--shift-time", type=float, default=None, help="Shift time in minutes for line efficiency calculation and pitch time calculation")
     parser.add_argument("--pitch-time-method", type=str, default="auto", choices=["auto", "manual", "target"], help="Method for calculating pitch time: auto (from file), manual (input), target (from production target)")

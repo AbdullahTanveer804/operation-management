@@ -273,7 +273,7 @@ def index():
                     # Read operations from file
                     filepath = Path(file.filename)
                     if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
-                        error = "File must be CSV or Excel (.xlsx, .xls)."
+                        error = "File must be Excel (.xlsx, .xls) or CSV."
                     else:
                         # Save temporarily and read
                         temp_path = None
@@ -335,24 +335,14 @@ def index():
 
 @app.route("/api/export/<format>/<session_id>")
 def export(format: str, session_id: str):
-    """Export results to CSV or Excel."""
+    """Export results to Excel."""
     calc = get_calculation(session_id)
     if not calc:
         return jsonify({"error": "Session not found"}), 404
     
     df = calc["report_df"]
     
-    if format == "csv":
-        buffer = io.StringIO()
-        df.to_csv(buffer, index=False)
-        buffer.seek(0)
-        return send_file(
-            io.BytesIO(buffer.getvalue().encode()),
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name=f"line_balance_{session_id}.csv"
-        )
-    elif format == "xlsx":
+    if format == "xlsx":
         # Generate chart image
         chart_img = generate_chart_image(
             calc["workstations"],
@@ -525,8 +515,6 @@ def export(format: str, session_id: str):
             as_attachment=True,
             download_name=f"line_balance_{session_id}.xlsx"
         )
-    
-    return jsonify({"error": "Invalid format"}), 400
 
 
 @app.route("/api/recalculate", methods=["POST"])
@@ -1199,12 +1187,6 @@ LAYOUT_TEMPLATE = """
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
             <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">After Balancing</h3>
             <div class="export-buttons">
-                <button onclick="exportFile('csv', '{{ session_id }}')">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    CSV
-                </button>
                 <button onclick="exportFile('xlsx', '{{ session_id }}')">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -2111,7 +2093,7 @@ HTML_TEMPLATE = """
             <h2>Configuration</h2>
             <div class="form-grid">
                 <div class="field file-upload-field">
-                    <label>Upload CSV/XLSX file</label>
+                    <label>Upload Excel/CSV file</label>
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
                 </div>
                 <div class="field">
