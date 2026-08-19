@@ -57,6 +57,9 @@ def run_workflow(
             raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
+        # Clear target-related parameters for manual method
+        production_target = None
+        shift_time_minutes = None
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError("Production target must be provided and positive when method is 'target'.")
@@ -67,6 +70,9 @@ def run_workflow(
     else:  # auto (default)
         pitch_time = calculate_pitch_time(sorted_operations)
         pitch_time_source = "calculated"
+        # Clear target-related parameters for auto method
+        production_target = None
+        shift_time_minutes = None
     
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
 
@@ -79,9 +85,9 @@ def run_workflow(
     # STEP 6.5: Calculate balance delay
     balance_delay = calculate_balance_delay(workstations, sorted_operations)
 
-    # STEP 6.6: Calculate line efficiency (if production target and shift time provided)
+    # STEP 6.6: Calculate line efficiency (if production target and shift time provided and method is target)
     line_efficiency = None
-    if production_target is not None and shift_time_minutes is not None:
+    if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
         line_efficiency = calculate_line_efficiency(workstations, sorted_operations, production_target, shift_time_minutes)
 
     # STEP 6.7: Calculate smoothing index

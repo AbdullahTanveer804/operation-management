@@ -8,6 +8,9 @@ Note: Before balancing supports the same time methods as after balancing:
 - Manual: Uses provided Takt Time
 - Target: Calculates Takt Time from production target and shift time  
 - Auto: Calculates Pitch Time from operations data
+
+Tolerance Input Format: The tolerance parameter expects values as decimal (e.g., 0.15 for 15%).
+Frontend input is expected as percentage (e.g., 15) and should be converted to decimal (e.g., 0.15) before calling these functions.
 """
 
 from typing import List, Tuple, Optional
@@ -31,7 +34,7 @@ def calculate_pitch_time_from_target(production_target: int, shift_time_minutes:
     Args:
         production_target: Production target (number of units)
         shift_time_minutes: Shift time in minutes
-        tolerance: Tolerance percentage (default 0.15 for 15%)
+        tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function.
     
     Returns:
         Calculated Takt Time
@@ -82,7 +85,7 @@ def calculate_before_tolerance_bands(pitch_time: float, tolerance: float = DEFAU
     
     Args:
         pitch_time: Calculated pitch time
-        tolerance: Tolerance percentage (hardcoded to 0.15 for 15%)
+        tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function.
     
     Returns:
         Tuple of (UCL, LCL) in seconds
@@ -308,7 +311,7 @@ def calculate_all_before_metrics(
         operations: List of Operation objects from input file
         production_target: Optional production target for line efficiency calculation and takt time calculation
         shift_time_minutes: Optional shift time in minutes for line efficiency calculation and takt time calculation
-        tolerance: Tolerance percentage (default 0.15 for 15%)
+        tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function.
         pitch_time_method: Method for calculating time ("auto", "manual", "target")
         manual_pitch_time: Optional manual takt time (required when method is "manual")
     
@@ -321,6 +324,9 @@ def calculate_all_before_metrics(
             raise ValueError("Manual takt time must be provided and positive when method is 'manual'.")
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
+        # Clear target-related parameters for manual method
+        production_target = None
+        shift_time_minutes = None
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError("Production target must be provided and positive when method is 'target'.")
@@ -331,6 +337,9 @@ def calculate_all_before_metrics(
     else:  # auto (default)
         pitch_time = calculate_before_pitch_time(operations)
         pitch_time_source = "calculated"
+        # Clear target-related parameters for auto method
+        production_target = None
+        shift_time_minutes = None
     
     # Calculate tolerance bands
     ucl, lcl = calculate_before_tolerance_bands(pitch_time, tolerance)
@@ -345,9 +354,9 @@ def calculate_all_before_metrics(
     balance_delay = calculate_before_balance_delay(operations)
     smoothing_index = calculate_before_smoothing_index(operations)
     
-    # Calculate line efficiency if production target and shift time are provided
+    # Calculate line efficiency if production target and shift time are provided and method is target
     line_efficiency = None
-    if production_target is not None and shift_time_minutes is not None:
+    if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
         line_efficiency = calculate_before_line_efficiency(operations, production_target, shift_time_minutes)
     
     return {

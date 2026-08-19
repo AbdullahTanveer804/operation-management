@@ -80,6 +80,9 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
             raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
+        # Clear target-related parameters for manual method
+        production_target = None
+        shift_time_minutes = None
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError("Production target must be provided and positive when method is 'target'.")
@@ -90,6 +93,9 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     else:  # auto (default)
         pitch_time = calculate_pitch_time(sorted_ops)
         pitch_time_source = "calculated"
+        # Clear target-related parameters for auto method
+        production_target = None
+        shift_time_minutes = None
     
     ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
     
@@ -102,9 +108,9 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     # Step 4.5: Calculate balance delay
     balance_delay = calculate_balance_delay(workstations, sorted_ops)
     
-    # Step 4.6: Calculate line efficiency (if production target and shift time provided)
+    # Step 4.6: Calculate line efficiency (if production target and shift time provided and method is target)
     line_efficiency = None
-    if production_target is not None and shift_time_minutes is not None:
+    if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
         if production_target <= 0 or shift_time_minutes <= 0:
             raise ValueError("Production target and shift time must be positive numbers.")
         line_efficiency = calculate_line_efficiency(workstations, sorted_ops, production_target, shift_time_minutes)
@@ -243,7 +249,7 @@ def index():
             file = request.files.get("file")
             pitch_time_method = request.form.get("pitch_time_method", "auto")
             pitch_time_str = request.form.get("pitch_time", "")
-            tolerance_str = request.form.get("tolerance", "0.15")
+            tolerance_str = request.form.get("tolerance", "15")
             production_target_str = request.form.get("production_target", "")
             shift_time_str = request.form.get("shift_time", "")
             
@@ -252,14 +258,22 @@ def index():
             else:
                 # Parse parameters
                 manual_pitch_time = float(pitch_time_str) if pitch_time_str else None
-                tolerance = float(tolerance_str)
+                tolerance_percentage = float(tolerance_str)
                 production_target = int(production_target_str) if production_target_str else None
                 shift_time_minutes = float(shift_time_str) if shift_time_str else None
+                
+                # Validate tolerance range (0-100% input)
+                if tolerance_percentage < 0 or tolerance_percentage > 100:
+                    error = "Tolerance must be between 0 and 100%."
+                tolerance = tolerance_percentage / 100  # Convert percentage to decimal
                 
                 # Validate based on pitch time method
                 if pitch_time_method == "manual":
                     if manual_pitch_time is None or manual_pitch_time <= 0:
                         error = "Manual Takt time must be provided and positive when method is 'manual'."
+                    # Clear shift time and production target for manual method
+                    shift_time_minutes = None
+                    production_target = None
                 elif pitch_time_method == "target":
                     if production_target is None or production_target <= 0:
                         error = "Production target must be provided and positive when method is 'target'."
@@ -267,7 +281,9 @@ def index():
                         error = "Shift time must be provided and positive when method is 'target'."
                 else:  # auto
                     # No validation needed for auto method
-                    pass
+                    # Clear shift time and production target for auto method
+                    shift_time_minutes = None
+                    production_target = None
                 
                 if not error:
                     # Read operations from file
@@ -427,7 +443,7 @@ def export(format: str, session_id: str):
         # 8. Tolerance
         tolerance_value = calc.get('tolerance', 0.15)
         tolerance_percentage = tolerance_value * 100
-        if tolerance_value != 0.15:
+        if tolerance_percentage != 15.0:
             tolerance_label = f"Tolerance (Manual): {tolerance_percentage:.1f}%"
         else:
             tolerance_label = f"Tolerance: {tolerance_percentage:.1f}%"
@@ -525,6 +541,7 @@ def recalculate():
     manual_pitch_time = data.get("pitch_time")
     production_target = data.get("production_target")
     shift_time_minutes = data.get("shift_time_minutes")
+    tolerance = data.get("tolerance")
     
     calc = get_calculation(session_id)
     if not calc:
@@ -556,18 +573,35 @@ def recalculate():
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid shift time value."}), 400
     
+    # Validate tolerance if provided
+    if tolerance is not None:
+        try:
+            tolerance = float(tolerance)
+            if tolerance < 0 or tolerance > 100:
+                return jsonify({"error": "Tolerance must be between 0 and 100."}), 400
+            tolerance = tolerance / 100  # Convert percentage to decimal
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid tolerance value."}), 400
+    
     # Recalculate with new parameters if provided
     try:
         operations = calc["operations"]
-        tolerance = calc.get("tolerance", 0.15)
+        if tolerance is None:
+            tolerance = calc.get("tolerance", 0.15)
         
         # Determine pitch time method based on what parameters are provided
         if manual_pitch_time is not None:
             pitch_time_method = "manual"
+            # Clear other parameters for manual method
+            production_target = None
+            shift_time_minutes = None
         elif production_target is not None and shift_time_minutes is not None:
             pitch_time_method = "target"
         else:
             pitch_time_method = "auto"
+            # Clear other parameters for auto method
+            production_target = None
+            shift_time_minutes = None
         
         result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method)
         
@@ -588,7 +622,7 @@ def recalculate():
                 "production_target": result["production_target"],
                 "shift_time_minutes": result["shift_time_minutes"],
                 "workstations_count": len(result["workstations"]),
-                "tolerance": result["tolerance"],
+                "tolerance": result["tolerance"] * 100,  # Convert to percentage for display
                 "before_metrics": result["before_metrics"]
             },
             "before_metrics": result["before_metrics"]
@@ -638,7 +672,7 @@ def get_chart_data(session_id: str):
         "total_basic_time": calc["total_basic_time"],
         "production_target": calc.get("production_target"),
         "shift_time_minutes": calc.get("shift_time_minutes"),
-        "tolerance": calc.get("tolerance", 0.15)
+        "tolerance": calc.get("tolerance", 0.15) * 100  # Convert to percentage for display
     }
     
     if calc.get("line_efficiency") is not None:
@@ -675,7 +709,7 @@ def get_before_chart_data(session_id: str):
         "balance_delay": before_metrics["balance_delay"],
         "smoothing_index": before_metrics["smoothing_index"],
         "total_basic_time": before_metrics["total_basic_time"],
-        "tolerance": before_metrics["tolerance"]
+        "tolerance": before_metrics["tolerance"] * 100  # Convert to percentage for display
     }
     
     if before_metrics.get("line_efficiency") is not None:
@@ -893,6 +927,21 @@ LAYOUT_TEMPLATE = """
             background: rgba(245, 158, 11, 0.2);
             color: #f59e0b;
             border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .tolerance-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tolerance-badge.manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
         }
 
         .metric-card .value {
@@ -1198,36 +1247,36 @@ LAYOUT_TEMPLATE = """
         <div class="metrics-grid">
             {% if result.production_target %}
             <div class="metric-card">
-                <div class="label">Production Target</div>
+                <div class="label">Production<br>Target</div>
                 <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
             </div>
             {% endif %}
             {% if result.shift_time_minutes %}
             <div class="metric-card">
-                <div class="label">Shift Time</div>
+                <div class="label">Shift<br>Time</div>
                 <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
             {% endif %}
             <div class="metric-card">
-                <div class="label">Composite operations</div>
+                <div class="label">Composite<br>operations</div>
                 <div class="value">{{ result.workstations|length }}</div>
             </div>
             <div class="metric-card">
-                <div class="label">Total Basic Time (SAM)</div>
+                <div class="label">SAM<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
             {% if result.line_efficiency %}
-            <div class="metric-card">
-                <div class="label">Line Efficiency%</div>
+            <div class="metric-card highlight">
+                <div class="label">Line<br>Efficiency%</div>
                 <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
             </div>
             {% endif %}
             <div class="metric-card">
-                <div class="label">Total Manpower</div>
+                <div class="label">Total<br>Manpower</div>
                 <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
             </div>
             <div class="metric-card">
-                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
+                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
                 <div class="value">
                     {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                     {% if result.pitch_time_source == "manual" %}
@@ -1240,27 +1289,32 @@ LAYOUT_TEMPLATE = """
                 </div>
             </div>
             <div class="metric-card">
-                <div class="label">{% if result.tolerance != 0.15 %}Tolerance (Manual){% else %}Tolerance{% endif %}</div>
-                <div class="value">{{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                <div class="label">Tolerance<br><br></div>
+                <div class="value">
+                    {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
+                    {% if result.tolerance * 100 != 15.0 %}
+                    <span class="tolerance-badge manual">Manual</span>
+                    {% endif %}
+                </div>
             </div>
             <div class="metric-card">
-                <div class="label">UCL</div>
+                <div class="label">UCL<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">LCL</div>
+                <div class="label">LCL<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
             </div>
             <div class="metric-card highlight">
-                <div class="label">Balancing Rate</div>
+                <div class="label">Balancing<br>Rate</div>
                 <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
             </div>
-            <div class="metric-card">
-                <div class="label">Balance Delay</div>
+            <div class="metric-card highlight">
+                <div class="label">Balance<br>Delay</div>
                 <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
             </div>
-            <div class="metric-card">
-                <div class="label">Smoothing Index</div>
+            <div class="metric-card highlight">
+                <div class="label">Smoothing<br>Index</div>
                 <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
         </div>
@@ -1652,6 +1706,21 @@ HTML_TEMPLATE = """
             background: rgba(245, 158, 11, 0.2);
             color: #f59e0b;
             border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .tolerance-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tolerance-badge.manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
         }
 
         .metric-card .value {
@@ -2110,7 +2179,7 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="field">
                     <label>Tolerance %</label>
-                    <input type="number" name="tolerance" value="0.15" min="0" max="1" step="0.01">
+                    <input type="number" name="tolerance" value="15" min="0" max="100" step="1">
                 </div>
                 <div class="field" id="production_target_field">
                     <label>Production Target</label>
@@ -2155,36 +2224,36 @@ HTML_TEMPLATE = """
             <div class="metrics-grid">
                 {% if result.production_target %}
                 <div class="metric-card">
-                    <div class="label">Production Target</div>
+                    <div class="label">Production<br>Target</div>
                     <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
                 </div>
                 {% endif %}
                 {% if result.shift_time_minutes %}
                 <div class="metric-card">
-                    <div class="label">Shift Time</div>
+                    <div class="label">Shift<br>Time</div>
                     <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 {% endif %}
                 <div class="metric-card">
-                    <div class="label">No. of Operations</div>
+                    <div class="label">Total<br>Operations</div>
                     <div class="value">{{ result.before_metrics.num_operations }}</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Total Basic Time (SAM)</div>
+                    <div class="label">SAM<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.before_metrics.total_basic_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 {% if result.before_metrics.line_efficiency %}
-                <div class="metric-card">
-                    <div class="label">Line Efficiency%</div>
+                <div class="metric-card highlight">
+                    <div class="label">Line<br>Efficiency%</div>
                     <div class="value">{{ "%.1f"|format(result.before_metrics.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
                 {% endif %}
                 <div class="metric-card">
-                    <div class="label">Total Manpower</div>
+                    <div class="label">Total<br>Manpower</div>
                     <div class="value">{{ result.before_metrics.total_manpower }}</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">{% if result.before_metrics.pitch_time_source == "manual" or result.before_metrics.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
+                    <div class="label">{% if result.before_metrics.pitch_time_source == "manual" or result.before_metrics.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
                     <div class="value">
                         {{ "%.1f"|format(result.before_metrics.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                         {% if result.before_metrics.pitch_time_source == "manual" %}
@@ -2197,27 +2266,32 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Tolerance</div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                    <div class="label">Tolerance<br><br></div>
+                    <div class="value">
+                        {{ "%.1f"|format(result.before_metrics.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
+                        {% if result.before_metrics.tolerance * 100 != 15.0 %}
+                        <span class="tolerance-badge manual">Manual</span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">UCL</div>
+                    <div class="label">UCL<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.before_metrics.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">LCL</div>
+                    <div class="label">LCL<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.before_metrics.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card highlight">
-                    <div class="label">Balancing Rate</div>
+                    <div class="label">Balancing<br>Rate</div>
                     <div class="value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
-                <div class="metric-card">
-                    <div class="label">Balance Delay</div>
+                <div class="metric-card highlight">
+                    <div class="label">Balance<br>Delay</div>
                     <div class="value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
-                <div class="metric-card">
-                    <div class="label">Smoothing Index</div>
+                <div class="metric-card highlight">
+                    <div class="label">Smoothing<br>Index</div>
                     <div class="value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
             </div>
@@ -2226,36 +2300,36 @@ HTML_TEMPLATE = """
             <div class="metrics-grid">
                 {% if result.production_target %}
                 <div class="metric-card">
-                    <div class="label">Production Target</div>
+                    <div class="label">Production<br>Target</div>
                     <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
                 </div>
                 {% endif %}
                 {% if result.shift_time_minutes %}
                 <div class="metric-card">
-                    <div class="label">Shift Time</div>
+                    <div class="label">Shift<br>Time</div>
                     <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 {% endif %}
                 <div class="metric-card">
-                    <div class="label">Composite operations</div>
+                    <div class="label">Composite<br>operations</div>
                     <div class="value">{{ result.workstations|length }}</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Total Basic Time (SAM)</div>
+                    <div class="label">SAM<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 {% if result.line_efficiency %}
-                <div class="metric-card">
-                    <div class="label">Line Efficiency%</div>
+                <div class="metric-card highlight">
+                    <div class="label">Line<br>Efficiency%</div>
                     <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
                 {% endif %}
                 <div class="metric-card">
-                    <div class="label">Total Manpower</div>
+                    <div class="label">Total<br>Manpower</div>
                     <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
+                    <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
                     <div class="value">
                         {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                         {% if result.pitch_time_source == "manual" %}
@@ -2268,27 +2342,32 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">{% if result.tolerance != 0.15 %}Tolerance (Manual){% else %}Tolerance{% endif %}</div>
-                    <div class="value">{{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                    <div class="label">Tolerance<br><br></div>
+                    <div class="value">
+                        {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
+                        {% if result.tolerance * 100 != 15.0 %}
+                        <span class="tolerance-badge manual">Manual</span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">UCL</div>
+                    <div class="label">UCL<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">LCL</div>
+                    <div class="label">LCL<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card highlight">
-                    <div class="label">Balancing Rate</div>
+                    <div class="label">Balancing<br>Rate</div>
                     <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
-                <div class="metric-card">
-                    <div class="label">Balance Delay</div>
+                <div class="metric-card highlight">
+                    <div class="label">Balance<br>Delay</div>
                     <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
-                <div class="metric-card">
-                    <div class="label">Smoothing Index</div>
+                <div class="metric-card highlight">
+                    <div class="label">Smoothing<br>Index</div>
                     <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
             </div>
@@ -2350,24 +2429,31 @@ HTML_TEMPLATE = """
             const pitchTimeInput = document.getElementById('pitch_time_input');
             const productionTargetField = document.getElementById('production_target_field');
             const shiftTimeField = document.getElementById('shift_time_field');
+            const shiftTimeInput = document.getElementById('shift_time_input');
             
             if (method === 'manual') {
                 pitchTimeField.style.display = 'flex';
                 pitchTimeInput.required = true;
                 productionTargetField.style.display = 'none';
                 shiftTimeField.style.display = 'none';
+                shiftTimeInput.value = '';
             } else if (method === 'target') {
                 pitchTimeField.style.display = 'none';
                 pitchTimeInput.required = false;
                 pitchTimeInput.value = '';
                 productionTargetField.style.display = 'flex';
                 shiftTimeField.style.display = 'flex';
+                // Set default shift time only if field is empty
+                if (!shiftTimeInput.value) {
+                    shiftTimeInput.value = '420';
+                }
             } else { // auto
                 pitchTimeField.style.display = 'none';
                 pitchTimeInput.required = false;
                 pitchTimeInput.value = '';
                 productionTargetField.style.display = 'none';
                 shiftTimeField.style.display = 'none';
+                shiftTimeInput.value = '';
             }
         }
 
