@@ -1354,14 +1354,22 @@ LAYOUT_TEMPLATE = """
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
-            document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+            // Show what you're switching TO (opposite of current/new theme)
+            // Update all theme toggle buttons on the page
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
         }
 
         // Restore theme on load
         window.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);
-            document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+            // Show what you're switching TO (opposite of current theme)
+            // Update all theme toggle buttons on the page
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
         });
 
         // Export function
@@ -2346,7 +2354,11 @@ HTML_TEMPLATE = """
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
             html.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
-            document.querySelector('.theme-toggle').textContent = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+            // Show what you're switching TO (opposite of current/new theme)
+            // Update all theme toggle buttons on the page
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
         }
 
         // Toggle pitch time input field based on method selection
@@ -2381,7 +2393,11 @@ HTML_TEMPLATE = """
         window.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);
-            document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+            // Show what you're switching TO (opposite of current theme)
+            // Update all theme toggle buttons on the page
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
 
             // Initialize pitch time field visibility
             togglePitchTimeInput();
