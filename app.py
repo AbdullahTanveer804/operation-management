@@ -1247,36 +1247,30 @@ LAYOUT_TEMPLATE = """
         <div class="metrics-grid">
             {% if result.production_target %}
             <div class="metric-card">
-                <div class="label">Production<br>Target</div>
+                <div class="label">Customer Demand<br></div>
                 <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
             </div>
             {% endif %}
             {% if result.shift_time_minutes %}
             <div class="metric-card">
-                <div class="label">Shift<br>Time</div>
+                <div class="label">Available Time<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
             {% endif %}
             <div class="metric-card">
-                <div class="label">Composite<br>operations</div>
+                <div class="label">Composite Operations<br></div>
                 <div class="value">{{ result.workstations|length }}</div>
             </div>
             <div class="metric-card">
                 <div class="label">SAM<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
-            {% if result.line_efficiency %}
-            <div class="metric-card highlight">
-                <div class="label">Line<br>Efficiency%</div>
-                <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-            </div>
-            {% endif %}
             <div class="metric-card">
-                <div class="label">Total<br>Manpower</div>
+                <div class="label">Manpower<br><br></div>
                 <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
             </div>
             <div class="metric-card">
-                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
+                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time<br><br>{% else %}Pitch Time<br><br>{% endif %}</div>
                 <div class="value">
                     {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                     {% if result.pitch_time_source == "manual" %}
@@ -1304,18 +1298,6 @@ LAYOUT_TEMPLATE = """
             <div class="metric-card">
                 <div class="label">LCL<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
-            </div>
-            <div class="metric-card highlight">
-                <div class="label">Balancing<br>Rate</div>
-                <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-            </div>
-            <div class="metric-card highlight">
-                <div class="label">Balance<br>Delay</div>
-                <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-            </div>
-            <div class="metric-card highlight">
-                <div class="label">Smoothing<br>Index</div>
-                <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
         </div>
 
