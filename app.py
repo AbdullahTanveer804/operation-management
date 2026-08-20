@@ -148,7 +148,7 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     }
 
 
-def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated") -> io.BytesIO:
+def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None) -> io.BytesIO:
     """
     Generate a bar chart image using matplotlib that matches the client-side Chart.js styling.
     
@@ -158,6 +158,7 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
         ucl: Upper control limit
         lcl: Lower control limit
         pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
+        y_max: Optional Y-axis maximum for shared scaling
     
     Returns:
         BytesIO object containing the PNG image
@@ -189,17 +190,22 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
                   color=(59/255, 130/255, 246/255, 0.8), 
                   edgecolor=(59/255, 130/255, 246/255, 1.0),
                   linewidth=1,
-                  width=0.6)
+                  width=0.6,
+                  label='Balancing SAM')
     
-    # Add reference lines
-    ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2, label='UCL')
-    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2, label=pitch_time_label)
-    ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2, label='LCL')
+    # Add reference lines without labels (labels will be in legend)
+    ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
+    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+    ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
+    
+    # Set Y-axis maximum if provided
+    if y_max is not None:
+        ax.set_ylim(0, y_max)
     
     # Set labels and title
     ax.set_xlabel('Workstations', fontsize=12, fontweight='500')
     ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500')
-    ax.set_title('Line Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
+    ax.set_title('After Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
     
     # Set x-axis ticks to workstation names
     ax.set_xticks(range(len(workstation_names)))
@@ -208,8 +214,107 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     # Format y-axis labels
     ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10)
     
-    # Add legend
-    ax.legend(loc='upper right', fontsize=10)
+    # Create custom legend with reference lines
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Balancing SAM'),
+        Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
+        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label),
+        Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    
+    # Add grid for better readability
+    ax.grid(axis='y', alpha=0.1, linestyle='-')
+    ax.grid(axis='x', alpha=0.1, linestyle='-')
+    
+    # Set background color to white for Excel export
+    ax.set_facecolor('white')
+    fig.patch.set_facecolor('white')
+    
+    # Adjust layout to prevent label cutoff
+    plt.tight_layout()
+    
+    # Save to BytesIO
+    img_buffer = io.BytesIO()
+    plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+    img_buffer.seek(0)
+    
+    # Close the figure to free memory
+    plt.close(fig)
+    
+    return img_buffer
+
+
+def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None) -> io.BytesIO:
+    """
+    Generate a before balancing bar chart image using matplotlib.
+    
+    Args:
+        operations: List of Operation objects
+        pitch_time: Target pitch time
+        ucl: Upper control limit
+        lcl: Lower control limit
+        pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
+        y_max: Optional Y-axis maximum for shared scaling
+    
+    Returns:
+        BytesIO object containing the PNG image
+    """
+    # Use non-interactive backend to avoid display issues
+    matplotlib.use('Agg')
+    
+    # Prepare data
+    operation_names = [op.name for op in operations]
+    basic_times = [op.basic_time for op in operations]
+    
+    # Determine pitch time label based on source
+    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+        pitch_time_label = "Takt Time"
+    else:
+        pitch_time_label = "Pitch Time"
+    
+    # Create figure with appropriate size
+    fig, ax = plt.subplots(figsize=(18, 9))
+    
+    # Create bar chart with blue color matching Chart.js
+    bars = ax.bar(range(len(operation_names)), basic_times, 
+                  color=(59/255, 130/255, 246/255, 0.8), 
+                  edgecolor=(59/255, 130/255, 246/255, 1.0),
+                  linewidth=1,
+                  width=0.6,
+                  label='Basic Time (SAM)')
+    
+    # Add reference lines without labels (labels will be in legend)
+    ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
+    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+    ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
+    
+    # Set Y-axis maximum if provided
+    if y_max is not None:
+        ax.set_ylim(0, y_max)
+    
+    # Set labels and title
+    ax.set_xlabel('Operations', fontsize=12, fontweight='500')
+    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500')
+    ax.set_title('Before Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
+    
+    # Set x-axis ticks to operation names
+    ax.set_xticks(range(len(operation_names)))
+    ax.set_xticklabels(operation_names, rotation=45, ha='right', fontsize=9)
+    
+    # Format y-axis labels
+    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10)
+    
+    # Create custom legend with reference lines
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Basic Time (SAM)'),
+        Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
+        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label),
+        Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
     
     # Add grid for better readability
     ax.grid(axis='y', alpha=0.1, linestyle='-')
@@ -359,13 +464,32 @@ def export(format: str, session_id: str):
     df = calc["report_df"]
     
     if format == "xlsx":
-        # Generate chart image
-        chart_img = generate_chart_image(
+        # Calculate shared Y-axis maximum for both charts
+        before_basic_times = [op.basic_time for op in calc["sorted_operations"]]
+        after_balancing_sam = [ws.balancing_sam for ws in calc["workstations"]]
+        
+        max_before = max(before_basic_times) if before_basic_times else 0
+        max_after = max(after_balancing_sam) if after_balancing_sam else 0
+        shared_y_max = max(max_before, max_after) * 1.1  # Add 10% padding
+        
+        # Generate before chart image
+        before_chart_img = generate_before_chart_image(
+            calc["sorted_operations"],
+            calc["pitch_time"],
+            calc["ucl"],
+            calc["lcl"],
+            calc.get("pitch_time_source", "calculated"),
+            shared_y_max
+        )
+        
+        # Generate after chart image
+        after_chart_img = generate_chart_image(
             calc["workstations"],
             calc["pitch_time"],
             calc["ucl"],
             calc["lcl"],
-            calc.get("pitch_time_source", "calculated")
+            calc.get("pitch_time_source", "calculated"),
+            shared_y_max
         )
         
         # Create Excel workbook with openpyxl
@@ -392,7 +516,13 @@ def export(format: str, session_id: str):
         # 2. Shift Time (If available)
         shift_time = calc.get('shift_time_minutes')
         if shift_time is not None:
-            worksheet[f'A{current_row}'] = f"Available Time: {shift_time:.1f} minutes"
+            # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+            if shift_time == int(shift_time):
+                formatted_shift = int(shift_time)
+            else:
+                truncated = int(shift_time * 10) / 10
+                formatted_shift = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"Available Time: {formatted_shift} minutes"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
@@ -404,14 +534,26 @@ def export(format: str, session_id: str):
         
         # 4. Total Basic Time (SAM)
         total_basic_time = calc['total_basic_time']  # Already calculated in minutes
-        worksheet[f'A{current_row}'] = f"SAM: {total_basic_time:.1f} min"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if total_basic_time == int(total_basic_time):
+            formatted_sam = int(total_basic_time)
+        else:
+            truncated = int(total_basic_time * 10) / 10
+            formatted_sam = int(truncated) if truncated == int(truncated) else truncated
+        worksheet[f'A{current_row}'] = f"SAM: {formatted_sam} min"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
         # 5. Line Efficiency% (If available)
         line_efficiency = calc.get('line_efficiency')
         if line_efficiency is not None:
-            worksheet[f'A{current_row}'] = f"Required Efficiency: {line_efficiency:.1f}%"
+            # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+            if line_efficiency == int(line_efficiency):
+                formatted_efficiency = int(line_efficiency)
+            else:
+                truncated = int(line_efficiency * 10) / 10
+                formatted_efficiency = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"Required Efficiency: {formatted_efficiency}%"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
@@ -436,38 +578,74 @@ def export(format: str, session_id: str):
             source_display = "(Auto)"
             time_display_name = "Pitch Time"
         
-        worksheet[f'A{current_row}'] = f"{time_display_name}: {calc['pitch_time']:.1f}s {source_display}"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if calc['pitch_time'] == int(calc['pitch_time']):
+            formatted_pitch = int(calc['pitch_time'])
+        else:
+            truncated = int(calc['pitch_time'] * 10) / 10
+            formatted_pitch = int(truncated) if truncated == int(truncated) else truncated
+        worksheet[f'A{current_row}'] = f"{time_display_name}: {formatted_pitch}s {source_display}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
         # 8. Tolerance
         tolerance_value = calc.get('tolerance', 0.15)
         tolerance_percentage = tolerance_value * 100
-        if tolerance_percentage != 15.0:
-            tolerance_label = f"Tolerance (Manual): {tolerance_percentage:.1f}%"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if tolerance_percentage == int(tolerance_percentage):
+            formatted_tolerance = int(tolerance_percentage)
         else:
-            tolerance_label = f"Tolerance: {tolerance_percentage:.1f}%"
+            truncated = int(tolerance_percentage * 10) / 10
+            formatted_tolerance = int(truncated) if truncated == int(truncated) else truncated
+        if tolerance_percentage != 15.0:
+            tolerance_label = f"Tolerance (Manual): {formatted_tolerance}%"
+        else:
+            tolerance_label = f"Tolerance: {formatted_tolerance}%"
         worksheet[f'A{current_row}'] = tolerance_label
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
         # 9. UCL
-        worksheet[f'A{current_row}'] = f"UCL: {calc['ucl']:.1f}s"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if calc['ucl'] == int(calc['ucl']):
+            formatted_ucl = int(calc['ucl'])
+        else:
+            truncated = int(calc['ucl'] * 10) / 10
+            formatted_ucl = int(truncated) if truncated == int(truncated) else truncated
+        worksheet[f'A{current_row}'] = f"UCL: {formatted_ucl}s"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 10. LCL
-        worksheet[f'A{current_row}'] = f"LCL: {calc['lcl']:.1f}s"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if calc['lcl'] == int(calc['lcl']):
+            formatted_lcl = int(calc['lcl'])
+        else:
+            truncated = int(calc['lcl'] * 10) / 10
+            formatted_lcl = int(truncated) if truncated == int(truncated) else truncated
+        worksheet[f'A{current_row}'] = f"LCL: {formatted_lcl}s"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
         # 11. Balancing Rate
-        worksheet[f'A{current_row}'] = f"Balancing Rate: {calc['line_balancing_rate']:.1f}%"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if calc['line_balancing_rate'] == int(calc['line_balancing_rate']):
+            formatted_rate = int(calc['line_balancing_rate'])
+        else:
+            truncated = int(calc['line_balancing_rate'] * 10) / 10
+            formatted_rate = int(truncated) if truncated == int(truncated) else truncated
+        worksheet[f'A{current_row}'] = f"Balancing Rate: {formatted_rate}%"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 12. Balance Delay
-        worksheet[f'A{current_row}'] = f"Balance Delay: {calc['balance_delay']:.1f}%"
+        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+        if calc['balance_delay'] == int(calc['balance_delay']):
+            formatted_delay = int(calc['balance_delay'])
+        else:
+            truncated = int(calc['balance_delay'] * 10) / 10
+            formatted_delay = int(truncated) if truncated == int(truncated) else truncated
+        worksheet[f'A{current_row}'] = f"Balance Delay: {formatted_delay}%"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
@@ -495,7 +673,21 @@ def export(format: str, session_id: str):
                 
                 # Format numeric values - but keep workstation identifiers as whole numbers
                 if isinstance(value, (int, float)):
-                    if headers[col_idx - 1] == 'Workstation' or isinstance(value, int):
+                    header_name = headers[col_idx - 1]
+                    # For specified columns, truncate to 1 decimal place (not rounding) and remove trailing zeros
+                    if header_name in ['Combined Basic Time', 'Balancing SAM', 'Pitch Time', 'Takt Time', 'UCL', 'LCL']:
+                        if value == int(value):
+                            cell.value = int(value)
+                            cell.number_format = '0'  # No decimal for whole numbers
+                        else:
+                            truncated_value = int(value * 10) / 10
+                            if truncated_value == int(truncated_value):
+                                cell.value = int(truncated_value)
+                                cell.number_format = '0'  # No decimal for whole numbers after truncation
+                            else:
+                                cell.value = truncated_value
+                                cell.number_format = '0.0'  # Show 1 decimal place
+                    elif header_name == 'Workstation' or isinstance(value, int):
                         cell.number_format = '0'  # No decimal for workstation identifiers and integers
                     else:
                         cell.number_format = '0.1'  # One decimal for other numeric values
@@ -513,12 +705,33 @@ def export(format: str, session_id: str):
             adjusted_width = min(max_length + 2, 30)  # Cap at 30 to prevent overly wide columns
             worksheet.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
         
-        # Insert chart image after the data table
+        # Insert chart images after the data table
         chart_row = start_row + len(df) + 3  # 3 rows gap after data table
-        img = Image(chart_img)
-        img.width = 800
-        img.height = 400
-        worksheet.add_image(img, f'A{chart_row}')
+        
+        # Add Before Balancing Chart title
+        worksheet[f'A{chart_row}'] = "Before Balancing Chart"
+        worksheet[f'A{chart_row}'].font = Font(size=12, bold=True, color="3B82F6")
+        chart_row += 1
+        
+        # Add Before Balancing Chart
+        before_img = Image(before_chart_img)
+        before_img.width = 800
+        before_img.height = 400
+        worksheet.add_image(before_img, f'A{chart_row}')
+        
+        # Move down for After Balancing Chart (approximately 25 rows for the chart image)
+        chart_row += 25
+        
+        # Add After Balancing Chart title
+        worksheet[f'A{chart_row}'] = "After Balancing Chart"
+        worksheet[f'A{chart_row}'].font = Font(size=12, bold=True, color="3B82F6")
+        chart_row += 1
+        
+        # Add After Balancing Chart
+        after_img = Image(after_chart_img)
+        after_img.width = 800
+        after_img.height = 400
+        worksheet.add_image(after_img, f'A{chart_row}')
         
         # Save to buffer
         buffer = io.BytesIO()
@@ -2306,11 +2519,11 @@ HTML_TEMPLATE = """
                     <input type="number" name="tolerance" value="15" min="0" max="100" step="1">
                 </div>
                 <div class="field" id="production_target_field">
-                    <label>Production Target</label>
+                    <label>Customer Demand</label>
                     <input type="number" name="production_target" id="production_target_input" value="" placeholder="Number of units" min="0" step="1">
                 </div>
                 <div class="field" id="shift_time_field">
-                    <label>Shift Time</label>
+                    <label>Available Time</label>
                     <input type="number" name="shift_time" id="shift_time_input" value="420" placeholder="Shift duration in minutes" min="0" step="1">
                 </div>
                 <div class="field">
@@ -2350,22 +2563,22 @@ HTML_TEMPLATE = """
             <div class="metrics-grid">
                 {% if result.production_target %}
                 <div class="metric-card">
-                    <div class="label">Production<br>Target</div>
+                    <div class="label">Customer Demand<br></div>
                     <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
                 </div>
                 {% endif %}
                 {% if result.shift_time_minutes %}
                 <div class="metric-card">
-                    <div class="label">Shift<br>Time</div>
+                    <div class="label">Available Time<br></div>
                     <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 {% endif %}
                 <div class="metric-card">
-                    <div class="label">SAM<br><br></div>
+                    <div class="label">SAM<br></div>
                     <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
+                    <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time<br>{% else %}Pitch Time<br>{% endif %}</div>
                     <div class="value">
                         {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                         {% if result.pitch_time_source == "manual" %}
@@ -2378,7 +2591,7 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">Tolerance<br><br></div>
+                    <div class="label">Tolerance<br></div>
                     <div class="value">
                         {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
                         {% if result.tolerance * 100 != 15.0 %}
@@ -2387,11 +2600,11 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">UCL<br><br></div>
+                    <div class="label">UCL<br></div>
                     <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
                 <div class="metric-card">
-                    <div class="label">LCL<br><br></div>
+                    <div class="label">LCL<br></div>
                     <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
             </div>
@@ -2574,6 +2787,48 @@ HTML_TEMPLATE = """
             }
         }
 
+        // Function to reset chart state when new calculations are run
+        function resetChartState() {
+            // Destroy existing chart instances
+            if (window.beforeBalanceChartInstance) {
+                try {
+                    window.beforeBalanceChartInstance.destroy();
+                } catch (e) {
+                    console.log('Error destroying before chart:', e);
+                }
+                window.beforeBalanceChartInstance = null;
+            }
+            if (window.balanceChartInstance) {
+                try {
+                    window.balanceChartInstance.destroy();
+                } catch (e) {
+                    console.log('Error destroying after chart:', e);
+                }
+                window.balanceChartInstance = null;
+            }
+            // Reset chart data and loaded state
+            window.beforeChartData = null;
+            window.chartsLoaded = false;
+            
+            // Hide balancing results section if it's visible
+            const resultsSection = document.getElementById('balancingResults');
+            if (resultsSection) {
+                resultsSection.style.display = 'none';
+            }
+            
+            // Reset button to show state
+            const button = document.getElementById('showBalancingResultsBtn');
+            if (button) {
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    Show Balancing Results
+                `;
+                button.onclick = showBalancingResults;
+            }
+        }
+
         // Restore theme on load
         window.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -2591,7 +2846,19 @@ HTML_TEMPLATE = """
             // Only load charts if session_id is available and results are already shown
             {% if session_id %}
             // Store session ID for later use
-            window.currentSessionId = '{{ session_id }}';
+            const newSessionId = '{{ session_id }}';
+            if (window.currentSessionId && window.currentSessionId !== newSessionId) {
+                // New session detected, reset chart state
+                resetChartState();
+            }
+            window.currentSessionId = newSessionId;
+            window.chartsLoaded = false; // Track if charts have been loaded
+            {% else %}
+            // Reset charts loaded state when no session
+            window.chartsLoaded = false;
+            window.currentSessionId = null;
+            // Reset chart state when page loads without results
+            resetChartState();
             {% endif %}
         });
 
@@ -2612,10 +2879,9 @@ HTML_TEMPLATE = """
                 `;
                 button.onclick = hideBalancingResults;
                 
-                // Load charts only when section is revealed
-                if (window.currentSessionId) {
+                // Load charts only when section is revealed and if not already loaded
+                if (window.currentSessionId && !window.chartsLoaded) {
                     loadBeforeChart(window.currentSessionId);
-                    loadChart(window.currentSessionId);
                 }
             }
         }
@@ -2637,15 +2903,8 @@ HTML_TEMPLATE = """
                 `;
                 button.onclick = showBalancingResults;
                 
-                // Destroy chart instances to free memory
-                if (window.beforeBalanceChartInstance) {
-                    window.beforeBalanceChartInstance.destroy();
-                    window.beforeBalanceChartInstance = null;
-                }
-                if (window.balanceChartInstance) {
-                    window.balanceChartInstance.destroy();
-                    window.balanceChartInstance = null;
-                }
+                // Don't destroy chart instances - they will be reused when section is shown again
+                // This prevents the "Canvas is already in use" error
             }
         }
 
@@ -2670,8 +2929,11 @@ HTML_TEMPLATE = """
                 
                 const data = await response.json();
                 
-                // Create before chart
-                createBeforeChart(data);
+                // Store before chart data for shared Y-axis calculation
+                window.beforeChartData = data;
+                
+                // Load after chart data to calculate shared Y-axis
+                await loadChart(sessionId);
             } catch (error) {
                 console.error('Error loading before chart:', error);
                 alert('Error loading before chart data: ' + error.message);
@@ -2695,8 +2957,32 @@ HTML_TEMPLATE = """
                 
                 const data = await response.json();
                 
-                // Create chart
-                createChart(data);
+                // Calculate shared Y-axis maximum
+                let sharedYMax = 0;
+                
+                // Find max from before chart data
+                if (window.beforeChartData && window.beforeChartData.basic_times) {
+                    const beforeMax = Math.max(...window.beforeChartData.basic_times);
+                    sharedYMax = Math.max(sharedYMax, beforeMax);
+                }
+                
+                // Find max from after chart data
+                if (data.balancing_sam) {
+                    const afterMax = Math.max(...data.balancing_sam);
+                    sharedYMax = Math.max(sharedYMax, afterMax);
+                }
+                
+                // Add some padding (10%) to the max value
+                sharedYMax = sharedYMax * 1.1;
+                
+                // Create both charts with shared Y-axis
+                if (window.beforeChartData) {
+                    createBeforeChart(window.beforeChartData, sharedYMax);
+                }
+                createChart(data, sharedYMax);
+                
+                // Mark charts as loaded
+                window.chartsLoaded = true;
             } catch (error) {
                 console.error('Error loading chart:', error);
                 alert('Error loading chart data: ' + error.message);
@@ -2704,8 +2990,14 @@ HTML_TEMPLATE = """
             }
         }
 
-        function createBeforeChart(chartData) {
+        function createBeforeChart(chartData, sharedYMax) {
             const ctx = document.getElementById('beforeBalanceChart').getContext('2d');
+            
+            // Destroy existing chart instance if it exists
+            if (window.beforeBalanceChartInstance) {
+                window.beforeBalanceChartInstance.destroy();
+                window.beforeBalanceChartInstance = null;
+            }
             
             // Get theme colors - grey text for light mode, white for dark mode
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -2719,14 +3011,53 @@ HTML_TEMPLATE = """
                 type: 'bar',
                 data: {
                     labels: chartData.operations,
-                    datasets: [{
-                        label: 'Basic Time (SAM)',
-                        data: chartData.basic_times,
-                        backgroundColor: 'rgba(59, 130, 246, 0.8)',
-                        borderColor: 'rgba(59, 130, 246, 1)',
-                        borderWidth: 1,
-                        borderRadius: 4
-                    }]
+                    datasets: [
+                        {
+                            label: 'Basic Time (SAM)',
+                            data: chartData.basic_times,
+                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            borderWidth: 1,
+                            borderRadius: 4
+                        },
+                        // Add reference lines as datasets for legend
+                        {
+                            label: 'UCL',
+                            data: Array(chartData.operations.length).fill(chartData.ucl),
+                            borderColor: 'rgb(239, 68, 68)',
+                            backgroundColor: 'rgb(239, 68, 68)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            type: 'line',
+                            fill: false,
+                            hidden: false
+                        },
+                        {
+                            label: pitchTimeLabel,
+                            data: Array(chartData.operations.length).fill(chartData.pitch_time),
+                            borderColor: 'rgb(34, 197, 94)',
+                            backgroundColor: 'rgb(34, 197, 94)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            type: 'line',
+                            fill: false,
+                            hidden: false
+                        },
+                        {
+                            label: 'LCL',
+                            data: Array(chartData.operations.length).fill(chartData.lcl),
+                            borderColor: 'rgb(249, 115, 22)',
+                            backgroundColor: 'rgb(249, 115, 22)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            type: 'line',
+                            fill: false,
+                            hidden: false
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
@@ -2764,71 +3095,10 @@ HTML_TEMPLATE = """
                                     return context[0].label;
                                 },
                                 label: function(context) {
-                                    return `Basic Time (SAM): ${context.raw.toFixed(1)}s`;
-                                }
-                            }
-                        },
-                        annotation: {
-                            annotations: {
-                                uclLine: {
-                                    type: 'line',
-                                    yMin: chartData.ucl,
-                                    yMax: chartData.ucl,
-                                    borderColor: 'rgb(239, 68, 68)',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: 'UCL',
-                                        position: 'end',
-                                        backgroundColor: 'rgb(239, 68, 68)',
-                                        color: 'white',
-                                        font: {
-                                            size: 11,
-                                            weight: 'bold'
-                                        },
-                                        padding: 6
+                                    if (context.datasetIndex === 0) {
+                                        return `Basic Time (SAM): ${context.raw.toFixed(1)}s`;
                                     }
-                                },
-                                pitchLine: {
-                                    type: 'line',
-                                    yMin: chartData.pitch_time,
-                                    yMax: chartData.pitch_time,
-                                    borderColor: 'rgb(34, 197, 94)',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: pitchTimeLabel,
-                                        position: 'end',
-                                        backgroundColor: 'rgb(34, 197, 94)',
-                                        color: 'white',
-                                        font: {
-                                            size: 11,
-                                            weight: 'bold'
-                                        },
-                                        padding: 6
-                                    }
-                                },
-                                lclLine: {
-                                    type: 'line',
-                                    yMin: chartData.lcl,
-                                    yMax: chartData.lcl,
-                                    borderColor: 'rgb(249, 115, 22)',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: 'LCL',
-                                        position: 'end',
-                                        backgroundColor: 'rgb(249, 115, 22)',
-                                        color: 'white',
-                                        font: {
-                                            size: 11,
-                                            weight: 'bold'
-                                        },
-                                        padding: 6
-                                    }
+                                    return null; // Don't show tooltips for reference lines
                                 }
                             }
                         }
@@ -2859,6 +3129,7 @@ HTML_TEMPLATE = """
                         },
                         y: {
                             beginAtZero: true,
+                            max: sharedYMax, // Use shared Y-axis maximum
                             grid: {
                                 color: gridColor
                             },
@@ -2886,8 +3157,14 @@ HTML_TEMPLATE = """
             });
         }
 
-        function createChart(chartData) {
+        function createChart(chartData, sharedYMax) {
             const ctx = document.getElementById('balanceChart').getContext('2d');
+            
+            // Destroy existing chart instance if it exists
+            if (window.balanceChartInstance) {
+                window.balanceChartInstance.destroy();
+                window.balanceChartInstance = null;
+            }
             
             // Get theme colors - grey text for light mode, white for dark mode
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -2901,14 +3178,53 @@ HTML_TEMPLATE = """
                 type: 'bar',
                 data: {
                     labels: chartData.workstations,
-                    datasets: [{
-                        label: 'Balancing SAM',
-                        data: chartData.balancing_sam,
-                        backgroundColor: 'rgba(59, 130, 246, 0.8)',
-                        borderColor: 'rgba(59, 130, 246, 1)',
-                        borderWidth: 1,
-                        borderRadius: 4
-                    }]
+                    datasets: [
+                        {
+                            label: 'Balancing SAM',
+                            data: chartData.balancing_sam,
+                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            borderWidth: 1,
+                            borderRadius: 4
+                        },
+                        // Add reference lines as datasets for legend
+                        {
+                            label: 'UCL',
+                            data: Array(chartData.workstations.length).fill(chartData.ucl),
+                            borderColor: 'rgb(239, 68, 68)',
+                            backgroundColor: 'rgb(239, 68, 68)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            type: 'line',
+                            fill: false,
+                            hidden: false
+                        },
+                        {
+                            label: pitchTimeLabel,
+                            data: Array(chartData.workstations.length).fill(chartData.pitch_time),
+                            borderColor: 'rgb(34, 197, 94)',
+                            backgroundColor: 'rgb(34, 197, 94)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            type: 'line',
+                            fill: false,
+                            hidden: false
+                        },
+                        {
+                            label: 'LCL',
+                            data: Array(chartData.workstations.length).fill(chartData.lcl),
+                            borderColor: 'rgb(249, 115, 22)',
+                            backgroundColor: 'rgb(249, 115, 22)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            type: 'line',
+                            fill: false,
+                            hidden: false
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
@@ -2946,71 +3262,10 @@ HTML_TEMPLATE = """
                                     return context[0].label;
                                 },
                                 label: function(context) {
-                                    return `Balancing SAM: ${context.raw.toFixed(1)}s`;
-                                }
-                            }
-                        },
-                        annotation: {
-                            annotations: {
-                                uclLine: {
-                                    type: 'line',
-                                    yMin: chartData.ucl,
-                                    yMax: chartData.ucl,
-                                    borderColor: 'rgb(239, 68, 68)',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: 'UCL',
-                                        position: 'end',
-                                        backgroundColor: 'rgb(239, 68, 68)',
-                                        color: 'white',
-                                        font: {
-                                            size: 11,
-                                            weight: 'bold'
-                                        },
-                                        padding: 6
+                                    if (context.datasetIndex === 0) {
+                                        return `Balancing SAM: ${context.raw.toFixed(1)}s`;
                                     }
-                                },
-                                pitchLine: {
-                                    type: 'line',
-                                    yMin: chartData.pitch_time,
-                                    yMax: chartData.pitch_time,
-                                    borderColor: 'rgb(34, 197, 94)',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: pitchTimeLabel,
-                                        position: 'end',
-                                        backgroundColor: 'rgb(34, 197, 94)',
-                                        color: 'white',
-                                        font: {
-                                            size: 11,
-                                            weight: 'bold'
-                                        },
-                                        padding: 6
-                                    }
-                                },
-                                lclLine: {
-                                    type: 'line',
-                                    yMin: chartData.lcl,
-                                    yMax: chartData.lcl,
-                                    borderColor: 'rgb(249, 115, 22)',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: 'LCL',
-                                        position: 'end',
-                                        backgroundColor: 'rgb(249, 115, 22)',
-                                        color: 'white',
-                                        font: {
-                                            size: 11,
-                                            weight: 'bold'
-                                        },
-                                        padding: 6
-                                    }
+                                    return null; // Don't show tooltips for reference lines
                                 }
                             }
                         }
@@ -3041,6 +3296,7 @@ HTML_TEMPLATE = """
                         },
                         y: {
                             beginAtZero: true,
+                            max: sharedYMax, // Use shared Y-axis maximum
                             grid: {
                                 color: gridColor
                             },
