@@ -385,14 +385,14 @@ def export(format: str, session_id: str):
         # 1. Production Target (If available)
         production_target = calc.get('production_target')
         if production_target is not None:
-            worksheet[f'A{current_row}'] = f"Production Target: {production_target} units"
+            worksheet[f'A{current_row}'] = f"Customer Demand: {production_target} units"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
         # 2. Shift Time (If available)
         shift_time = calc.get('shift_time_minutes')
         if shift_time is not None:
-            worksheet[f'A{current_row}'] = f"Shift Time: {shift_time:.1f} minutes"
+            worksheet[f'A{current_row}'] = f"Available Time: {shift_time:.1f} minutes"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
@@ -404,14 +404,14 @@ def export(format: str, session_id: str):
         
         # 4. Total Basic Time (SAM)
         total_basic_time = calc['total_basic_time']  # Already calculated in minutes
-        worksheet[f'A{current_row}'] = f"Total Basic Time (SAM): {total_basic_time:.1f} min"
+        worksheet[f'A{current_row}'] = f"SAM: {total_basic_time:.1f} min"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
         # 5. Line Efficiency% (If available)
         line_efficiency = calc.get('line_efficiency')
         if line_efficiency is not None:
-            worksheet[f'A{current_row}'] = f"Line Efficiency%: {line_efficiency:.1f}%"
+            worksheet[f'A{current_row}'] = f"Required Efficiency: {line_efficiency:.1f}%"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
@@ -420,7 +420,7 @@ def export(format: str, session_id: str):
         for each_ws in calc['workstations']:
             manpower_sum += each_ws.manpower
         total_manpower = manpower_sum
-        worksheet[f'A{current_row}'] = f"Total ManPower: {total_manpower}"
+        worksheet[f'A{current_row}'] = f"ManPower: {total_manpower}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
@@ -1958,6 +1958,118 @@ HTML_TEMPLATE = """
             border-radius: var(--radius-sm);
         }
 
+        /* Comparison Section Styles */
+        .comparison-section {
+            margin-bottom: 32px;
+        }
+
+        .comparison-table-wrapper {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .comparison-table thead {
+            background: var(--surface-2);
+        }
+
+        .comparison-table th {
+            padding: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th.metric-name-header {
+            width: 30%;
+        }
+
+        .comparison-table th.before-header {
+            width: 35%;
+            color: var(--warning);
+            border-left: 1px solid var(--border);
+        }
+
+        .comparison-table th.after-header {
+            width: 35%;
+            color: var(--success);
+            border-left: 1px solid var(--border);
+        }
+
+        .comparison-table td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+            vertical-align: middle;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comparison-table tr:hover {
+            background: rgba(59, 130, 246, 0.04);
+        }
+
+        .comparison-table .metric-name {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .comparison-table .before-cell {
+            border-left: 1px solid var(--border);
+        }
+
+        .comparison-table .after-cell {
+            border-left: 1px solid var(--border);
+        }
+
+        .comparison-table .metric-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .comparison-table .metric-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .comparison-table .unit {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-left: 4px;
+        }
+
+        /* Charts Comparison Section */
+        .charts-comparison-section {
+            margin-bottom: 32px;
+        }
+
+        .charts-comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 16px 12px;
@@ -2080,6 +2192,36 @@ HTML_TEMPLATE = """
                 width: 100%;
                 justify-content: center;
             }
+
+            .comparison-table {
+                font-size: 12px;
+            }
+
+            .comparison-table th,
+            .comparison-table td {
+                padding: 12px 8px;
+            }
+
+            .comparison-table th.metric-name-header {
+                width: 35%;
+            }
+
+            .comparison-table th.before-header,
+            .comparison-table th.after-header {
+                width: 32.5%;
+            }
+
+            .comparison-table .metric-value {
+                font-size: 16px;
+            }
+
+            .comparison-table .metric-label {
+                font-size: 10px;
+            }
+
+            .charts-comparison-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 480px) {
@@ -2187,7 +2329,7 @@ HTML_TEMPLATE = """
         {% if result %}
         <section class="results-section">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Before Balancing</h3>
+                <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Calculation Results</h3>
                 <div class="export-buttons">
                     <button class="export-button" onclick="window.location.href='/layout/{{ session_id }}'">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -2203,6 +2345,8 @@ HTML_TEMPLATE = """
                     </button>
                 </div>
             </div>
+            
+            <!-- Constant Metrics (shown immediately) -->
             <div class="metrics-grid">
                 {% if result.production_target %}
                 <div class="metric-card">
@@ -2216,99 +2360,9 @@ HTML_TEMPLATE = """
                     <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
                 {% endif %}
-                <div class="metric-card">
-                    <div class="label">Total<br>Operations</div>
-                    <div class="value">{{ result.before_metrics.num_operations }}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">SAM<br><br></div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.total_basic_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-                {% if result.before_metrics.line_efficiency %}
-                <div class="metric-card highlight">
-                    <div class="label">Line<br>Efficiency%</div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                {% endif %}
-                <div class="metric-card">
-                    <div class="label">Total<br>Manpower</div>
-                    <div class="value">{{ result.before_metrics.total_manpower }}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">{% if result.before_metrics.pitch_time_source == "manual" or result.before_metrics.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
-                    <div class="value">
-                        {{ "%.1f"|format(result.before_metrics.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
-                        {% if result.before_metrics.pitch_time_source == "manual" %}
-                        <span class="pitch-source-badge manual">Manual</span>
-                        {% elif result.before_metrics.pitch_time_source == "By Target" %}
-                        <span class="pitch-source-badge target">By Target</span>
-                        {% else %}
-                        <span class="pitch-source-badge auto">Auto</span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">Tolerance<br><br></div>
-                    <div class="value">
-                        {{ "%.1f"|format(result.before_metrics.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
-                        {% if result.before_metrics.tolerance * 100 != 15.0 %}
-                        <span class="tolerance-badge manual">Manual</span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">UCL<br><br></div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">LCL<br><br></div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
-                </div>
-                <div class="metric-card highlight">
-                    <div class="label">Balancing<br>Rate</div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                <div class="metric-card highlight">
-                    <div class="label">Balance<br>Delay</div>
-                    <div class="value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                <div class="metric-card highlight">
-                    <div class="label">Smoothing<br>Index</div>
-                    <div class="value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-            </div>
-
-            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">After Balancing</h3>
-            <div class="metrics-grid">
-                {% if result.production_target %}
-                <div class="metric-card">
-                    <div class="label">Production<br>Target</div>
-                    <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
-                </div>
-                {% endif %}
-                {% if result.shift_time_minutes %}
-                <div class="metric-card">
-                    <div class="label">Shift<br>Time</div>
-                    <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-                {% endif %}
-                <div class="metric-card">
-                    <div class="label">Composite<br>operations</div>
-                    <div class="value">{{ result.workstations|length }}</div>
-                </div>
                 <div class="metric-card">
                     <div class="label">SAM<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-                {% if result.line_efficiency %}
-                <div class="metric-card highlight">
-                    <div class="label">Line<br>Efficiency%</div>
-                    <div class="value">{{ "%.1f"|format(result.line_efficiency) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                {% endif %}
-                <div class="metric-card">
-                    <div class="label">Total<br>Manpower</div>
-                    <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
                 </div>
                 <div class="metric-card">
                     <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt<br>Time{% else %}Pitch<br>Time{% endif %}</div>
@@ -2340,49 +2394,130 @@ HTML_TEMPLATE = """
                     <div class="label">LCL<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
-                <div class="metric-card highlight">
-                    <div class="label">Balancing<br>Rate</div>
-                    <div class="value">{{ "%.1f"|format(result.line_balancing_rate) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                <div class="metric-card highlight">
-                    <div class="label">Balance<br>Delay</div>
-                    <div class="value">{{ "%.1f"|format(result.balance_delay) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                <div class="metric-card highlight">
-                    <div class="label">Smoothing<br>Index</div>
-                    <div class="value">{{ "%.2f"|format(result.smoothing_index) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
             </div>
 
-            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">Before Balancing Chart</h3>
-            
-            <div class="chart-section">
-                <div class="chart-header">
-                    <div class="chart-title">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                        Before Balancing
-                    </div>
-                </div>
-                <div class="chart-container">
-                    <canvas id="beforeBalanceChart"></canvas>
-                </div>
+            <!-- Show Balancing Results Button -->
+            <div style="margin-top: 24px; margin-bottom: 24px;">
+                <button type="button" id="showBalancingResultsBtn" onclick="showBalancingResults()" class="chart-button" style="width: auto; padding: 12px 24px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    Show Balancing Results
+                </button>
             </div>
 
-            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">After Balancing Chart</h3>
-            
-            <div class="chart-section">
-                <div class="chart-header">
-                    <div class="chart-title">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                        After Balancing
+            <!-- Balancing Results (hidden by default, shown on button click) -->
+            <div id="balancingResults" style="display: none;">
+                <!-- Side-by-side comparison metrics table -->
+                <div class="comparison-section">
+                    <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">Before vs After Comparison</h3>
+                    
+                    <div class="comparison-table-wrapper">
+                        <table class="comparison-table">
+                            <thead>
+                                <tr>
+                                    <th class="metric-name-header">Metric</th>
+                                    <th class="before-header">Before Balancing</th>
+                                    <th class="after-header">After Balancing</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="metric-name">Total / Composite Operations</td>
+                                    <td class="before-cell">
+                                        <span class="metric-label">Total Operations</span>
+                                        <span class="metric-value">{{ result.before_metrics.num_operations }}</span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-label">Composite Operations</span>
+                                        <span class="metric-value">{{ result.workstations|length }}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="metric-name">Total Manpower</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ result.before_metrics.total_manpower }}</span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-value">{{ result.workstations|map(attribute='manpower')|sum }}</span>
+                                    </td>
+                                </tr>
+                                {% if result.before_metrics.line_efficiency or result.line_efficiency %}
+                                <tr>
+                                    <td class="metric-name">Line Efficiency %</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{% if result.before_metrics.line_efficiency %}{{ "%.1f"|format(result.before_metrics.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-value">{% if result.line_efficiency %}{{ "%.1f"|format(result.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <td class="metric-name">Balancing Rate</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span class="unit">%</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.line_balancing_rate) }}<span class="unit">%</span></span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="metric-name">Balance Delay</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span class="unit">%</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.balance_delay) }}<span class="unit">%</span></span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="metric-name">Smoothing Index</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span class="unit"> min</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-value">{{ "%.2f"|format(result.smoothing_index) }}<span class="unit"> min</span></span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                <div class="chart-container">
-                    <canvas id="balanceChart"></canvas>
+
+                <!-- Side-by-side charts -->
+                <div class="charts-comparison-section">
+                    <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">Before vs After Charts</h3>
+                    
+                    <div class="charts-comparison-grid">
+                        <div class="chart-section">
+                            <div class="chart-header">
+                                <div class="chart-title">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    Before Balancing
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="beforeBalanceChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="chart-section">
+                            <div class="chart-header">
+                                <div class="chart-title">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    After Balancing
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="balanceChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -2452,12 +2587,67 @@ HTML_TEMPLATE = """
             // Initialize pitch time field visibility
             togglePitchTimeInput();
 
-            // Load charts if session_id is available
+            // Initialize balancing results section state
+            // Only load charts if session_id is available and results are already shown
             {% if session_id %}
-            loadBeforeChart('{{ session_id }}');
-            loadChart('{{ session_id }}');
+            // Store session ID for later use
+            window.currentSessionId = '{{ session_id }}';
             {% endif %}
         });
+
+        // Function to show balancing results
+        function showBalancingResults() {
+            const resultsSection = document.getElementById('balancingResults');
+            const button = document.getElementById('showBalancingResultsBtn');
+            
+            if (resultsSection) {
+                resultsSection.style.display = 'block';
+                
+                // Update button to hide results
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                    Hide Balancing Results
+                `;
+                button.onclick = hideBalancingResults;
+                
+                // Load charts only when section is revealed
+                if (window.currentSessionId) {
+                    loadBeforeChart(window.currentSessionId);
+                    loadChart(window.currentSessionId);
+                }
+            }
+        }
+
+        // Function to hide balancing results
+        function hideBalancingResults() {
+            const resultsSection = document.getElementById('balancingResults');
+            const button = document.getElementById('showBalancingResultsBtn');
+            
+            if (resultsSection) {
+                resultsSection.style.display = 'none';
+                
+                // Update button to show results
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    Show Balancing Results
+                `;
+                button.onclick = showBalancingResults;
+                
+                // Destroy chart instances to free memory
+                if (window.beforeBalanceChartInstance) {
+                    window.beforeBalanceChartInstance.destroy();
+                    window.beforeBalanceChartInstance = null;
+                }
+                if (window.balanceChartInstance) {
+                    window.balanceChartInstance.destroy();
+                    window.balanceChartInstance = null;
+                }
+            }
+        }
 
         // Export function
         function exportFile(format, sessionId) {
