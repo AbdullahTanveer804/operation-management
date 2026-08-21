@@ -56,7 +56,7 @@ def get_calculation(session_id: str) -> Optional[Dict]:
     return result
 
 
-def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manual_pitch_time: Optional[float] = None, production_target: Optional[int] = None, shift_time_minutes: Optional[float] = None, pitch_time_method: str = "auto") -> Dict:
+def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manual_pitch_time: Optional[float] = None, production_target: Optional[int] = None, shift_time_minutes: Optional[float] = None, pitch_time_method: str = "auto", efficiency_percentage: Optional[float] = None, available_time_minutes: Optional[float] = None) -> Dict:
     """
     Run the complete balancing calculation and return all results.
     
@@ -67,6 +67,8 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         production_target: Optional production target for line efficiency calculation and pitch time calculation
         shift_time_minutes: Optional shift time in minutes for line efficiency calculation and pitch time calculation
         pitch_time_method: Method for calculating pitch time ("auto", "manual", "target")
+        efficiency_percentage: Optional efficiency percentage for Target calculation (0-100)
+        available_time_minutes: Optional available time in minutes for Target calculation
     
     Returns:
         Dictionary with all calculation results
@@ -122,7 +124,24 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     total_basic_time = sum(op.basic_time for op in sorted_ops) / 60  # Convert seconds to minutes
     
     # Step 4.9: Calculate before-balancing metrics
-    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, tolerance, pitch_time_method, manual_pitch_time)
+    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, tolerance, pitch_time_method, manual_pitch_time, efficiency_percentage, available_time_minutes)
+    
+    # Step 4.10: Calculate Target (if both efficiency and available time are provided)
+    target_before = None
+    target_after = None
+    if efficiency_percentage is not None and available_time_minutes is not None:
+        # Calculate Target for before balancing
+        # Target = (Efficiency% × Total Manpower × Available Time(minutes)) / Total Basic Time(SAM in Minutes)
+        total_manpower_before = before_metrics["total_manpower"]
+        total_basic_time_minutes_before = before_metrics["total_basic_time_minutes"]
+        if total_basic_time_minutes_before > 0:
+            target_before = (efficiency_percentage / 100 * total_manpower_before * available_time_minutes) / total_basic_time_minutes_before
+        
+        # Calculate Target for after balancing
+        total_manpower_after = sum(ws.manpower for ws in workstations)
+        total_basic_time_minutes_after = total_basic_time  # Already calculated in minutes
+        if total_basic_time_minutes_after > 0:
+            target_after = (efficiency_percentage / 100 * total_manpower_after * available_time_minutes) / total_basic_time_minutes_after
     
     # Step 5: Build report
     report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time, pitch_time_source)
@@ -145,6 +164,10 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "report_df": report_df,
         "tolerance": tolerance,
         "before_metrics": before_metrics,
+        "efficiency_percentage": efficiency_percentage,
+        "available_time_minutes": available_time_minutes,
+        "target_before": target_before,
+        "target_after": target_after,
     }
 
 
@@ -357,6 +380,8 @@ def index():
             tolerance_str = request.form.get("tolerance", "15")
             production_target_str = request.form.get("production_target", "")
             shift_time_str = request.form.get("shift_time", "")
+            efficiency_str = request.form.get("efficiency", "")
+            available_time_str = request.form.get("available_time", "")
             
             if not file or file.filename == "":
                 error = "Please select a file to upload."
@@ -366,11 +391,26 @@ def index():
                 tolerance_percentage = float(tolerance_str)
                 production_target = int(production_target_str) if production_target_str else None
                 shift_time_minutes = float(shift_time_str) if shift_time_str else None
+                efficiency_percentage = float(efficiency_str) if efficiency_str else None
+                available_time_minutes = float(available_time_str) if available_time_str else None
                 
                 # Validate tolerance range (0-100% input)
                 if tolerance_percentage < 0 or tolerance_percentage > 100:
                     error = "Tolerance must be between 0 and 100%."
                 tolerance = tolerance_percentage / 100  # Convert percentage to decimal
+                
+                # Validate efficiency if provided
+                if efficiency_percentage is not None:
+                    if efficiency_percentage <= 0 or efficiency_percentage > 100:
+                        error = "Efficiency must be between 0 and 100%."
+                
+                # Validate available time if provided
+                if available_time_minutes is not None:
+                    if available_time_minutes <= 0:
+                        error = "Available time must be a positive number."
+                    # Use a sensible upper bound (e.g., 1440 minutes = 24 hours)
+                    if available_time_minutes > 1440:
+                        error = "Available time must be less than 1440 minutes (24 hours)."
                 
                 # Validate based on pitch time method
                 if pitch_time_method == "manual":
@@ -379,16 +419,21 @@ def index():
                     # Clear shift time and production target for manual method
                     shift_time_minutes = None
                     production_target = None
+                    # Keep efficiency and available time for manual method (they are optional)
                 elif pitch_time_method == "target":
                     if production_target is None or production_target <= 0:
                         error = "Production target must be provided and positive when method is 'target'."
                     elif shift_time_minutes is None or shift_time_minutes <= 0:
                         error = "Shift time must be provided and positive when method is 'target'."
+                    # Clear efficiency and available time for target method (out of scope)
+                    efficiency_percentage = None
+                    available_time_minutes = None
                 else:  # auto
                     # No validation needed for auto method
                     # Clear shift time and production target for auto method
                     shift_time_minutes = None
                     production_target = None
+                    # Keep efficiency and available time for auto method (they are optional)
                 
                 if not error:
                     # Read operations from file
@@ -412,7 +457,7 @@ def index():
                                 error = f"File has validation errors:<br>{error_list}"
                             else:
                                 # Run calculation
-                                result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method)
+                                result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method, efficiency_percentage, available_time_minutes)
                                 
                                 # Convert dataframe to list of dicts for template
                                 df = result["report_df"]
@@ -523,6 +568,30 @@ def export(format: str, session_id: str):
                 truncated = int(shift_time * 10) / 10
                 formatted_shift = int(truncated) if truncated == int(truncated) else truncated
             worksheet[f'A{current_row}'] = f"Available Time: {formatted_shift} minutes"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+        
+        # 2.5. Required Efficiency (If available)
+        efficiency_percentage = calc.get('efficiency_percentage')
+        available_time_for_target = calc.get('available_time_minutes')
+        if efficiency_percentage is not None and available_time_for_target is not None:
+            # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+            if efficiency_percentage == int(efficiency_percentage):
+                formatted_efficiency = int(efficiency_percentage)
+            else:
+                truncated = int(efficiency_percentage * 10) / 10
+                formatted_efficiency = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"Required Efficiency: {formatted_efficiency}%"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+            
+            # Also include the available time used for efficiency calculation
+            if available_time_for_target == int(available_time_for_target):
+                formatted_available_time = int(available_time_for_target)
+            else:
+                truncated = int(available_time_for_target * 10) / 10
+                formatted_available_time = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"Available Time (for Target): {formatted_available_time} minutes"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
@@ -654,6 +723,31 @@ def export(format: str, session_id: str):
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
+        # 14. Target (If available)
+        target_before = calc.get('target_before')
+        target_after = calc.get('target_after')
+        if target_before is not None and target_after is not None:
+            # Format to show at most 2 decimal places, truncating (not rounding), removing trailing zeros
+            if target_before == int(target_before):
+                formatted_target_before = int(target_before)
+            else:
+                truncated = int(target_before * 100) / 100
+                formatted_target_before = int(truncated) if truncated == int(truncated) else truncated
+            
+            if target_after == int(target_after):
+                formatted_target_after = int(target_after)
+            else:
+                truncated = int(target_after * 100) / 100
+                formatted_target_after = int(truncated) if truncated == int(truncated) else truncated
+            
+            worksheet[f'A{current_row}'] = f"Target (Before): {formatted_target_before} units"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+            
+            worksheet[f'A{current_row}'] = f"Target (After): {formatted_target_after} units"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+        
         # Set start_row for data table (add one row spacing after metrics)
         start_row = current_row + 1
         
@@ -755,6 +849,8 @@ def recalculate():
     production_target = data.get("production_target")
     shift_time_minutes = data.get("shift_time_minutes")
     tolerance = data.get("tolerance")
+    efficiency_percentage = data.get("efficiency_percentage")
+    available_time_minutes = data.get("available_time_minutes")
     
     calc = get_calculation(session_id)
     if not calc:
@@ -786,6 +882,26 @@ def recalculate():
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid shift time value."}), 400
     
+    # Validate efficiency if provided
+    if efficiency_percentage is not None:
+        try:
+            efficiency_percentage = float(efficiency_percentage)
+            if efficiency_percentage <= 0 or efficiency_percentage > 100:
+                return jsonify({"error": "Efficiency must be between 0 and 100%."}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid efficiency value."}), 400
+    
+    # Validate available time if provided
+    if available_time_minutes is not None:
+        try:
+            available_time_minutes = float(available_time_minutes)
+            if available_time_minutes <= 0:
+                return jsonify({"error": "Available time must be a positive number."}), 400
+            if available_time_minutes > 1440:
+                return jsonify({"error": "Available time must be less than 1440 minutes (24 hours)."}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid available time value."}), 400
+    
     # Validate tolerance if provided
     if tolerance is not None:
         try:
@@ -808,15 +924,20 @@ def recalculate():
             # Clear other parameters for manual method
             production_target = None
             shift_time_minutes = None
+            # Keep efficiency and available time for manual method
         elif production_target is not None and shift_time_minutes is not None:
             pitch_time_method = "target"
+            # Clear efficiency and available time for target method
+            efficiency_percentage = None
+            available_time_minutes = None
         else:
             pitch_time_method = "auto"
             # Clear other parameters for auto method
             production_target = None
             shift_time_minutes = None
+            # Keep efficiency and available time for auto method
         
-        result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method)
+        result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method, efficiency_percentage, available_time_minutes)
         
         # Update session with new calculation
         store_calculation(session_id, result)
@@ -836,7 +957,11 @@ def recalculate():
                 "shift_time_minutes": result["shift_time_minutes"],
                 "workstations_count": len(result["workstations"]),
                 "tolerance": result["tolerance"] * 100,  # Convert to percentage for display
-                "before_metrics": result["before_metrics"]
+                "before_metrics": result["before_metrics"],
+                "efficiency_percentage": result["efficiency_percentage"],
+                "available_time_minutes": result["available_time_minutes"],
+                "target_before": result["target_before"],
+                "target_after": result["target_after"],
             },
             "before_metrics": result["before_metrics"]
         }
@@ -1468,6 +1593,12 @@ LAYOUT_TEMPLATE = """
             <div class="metric-card">
                 <div class="label">Available Time<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+            </div>
+            {% endif %}
+            {% if result.efficiency_percentage and result.available_time_minutes %}
+            <div class="metric-card">
+                <div class="label">Required Efficiency<br><br></div>
+                <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
             </div>
             {% endif %}
             <div class="metric-card">
@@ -2526,6 +2657,14 @@ HTML_TEMPLATE = """
                     <label>Available Time</label>
                     <input type="number" name="shift_time" id="shift_time_input" value="420" placeholder="Shift duration in minutes" min="0" step="1">
                 </div>
+                <div class="field" id="efficiency_field">
+                    <label>Efficiency %</label>
+                    <input type="number" name="efficiency" id="efficiency_input" value="" placeholder="Required efficiency (0-100)" min="0" max="100" step="0.1">
+                </div>
+                <div class="field" id="available_time_field">
+                    <label>Available Time (Efficiency)</label>
+                    <input type="number" name="available_time" id="available_time_input" value="420" placeholder="Available time in minutes" min="0" step="1">
+                </div>
                 <div class="field">
                     <label>&nbsp;</label>
                     <button type="submit">Run calculations</button>
@@ -2571,6 +2710,12 @@ HTML_TEMPLATE = """
                 <div class="metric-card">
                     <div class="label">Available Time<br></div>
                     <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% endif %}
+                {% if result.efficiency_percentage and result.available_time_minutes %}
+                <div class="metric-card">
+                    <div class="label">Required Efficiency<br></div>
+                    <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
                 </div>
                 {% endif %}
                 <div class="metric-card">
@@ -2693,6 +2838,17 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ "%.2f"|format(result.smoothing_index) }}<span class="unit"> min</span></span>
                                     </td>
                                 </tr>
+                                {% if result.target_before is not none and result.target_after is not none %}
+                                <tr>
+                                    <td class="metric-name">Target</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.2f"|format(result.target_before) }}<span class="unit"> units</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        <span class="metric-value">{{ "%.2f"|format(result.target_after) }}<span class="unit"> units</span></span>
+                                    </td>
+                                </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -2760,6 +2916,10 @@ HTML_TEMPLATE = """
             const productionTargetField = document.getElementById('production_target_field');
             const shiftTimeField = document.getElementById('shift_time_field');
             const shiftTimeInput = document.getElementById('shift_time_input');
+            const efficiencyField = document.getElementById('efficiency_field');
+            const efficiencyInput = document.getElementById('efficiency_input');
+            const availableTimeField = document.getElementById('available_time_field');
+            const availableTimeInput = document.getElementById('available_time_input');
             
             if (method === 'manual') {
                 pitchTimeField.style.display = 'flex';
@@ -2767,6 +2927,15 @@ HTML_TEMPLATE = """
                 productionTargetField.style.display = 'none';
                 shiftTimeField.style.display = 'none';
                 shiftTimeInput.value = '';
+                // Show efficiency and available time fields for manual method
+                efficiencyField.style.display = 'flex';
+                efficiencyInput.required = false;
+                availableTimeField.style.display = 'flex';
+                availableTimeInput.required = false;
+                // Set default available time only if field is empty
+                if (!availableTimeInput.value) {
+                    availableTimeInput.value = '420';
+                }
             } else if (method === 'target') {
                 pitchTimeField.style.display = 'none';
                 pitchTimeInput.required = false;
@@ -2777,6 +2946,13 @@ HTML_TEMPLATE = """
                 if (!shiftTimeInput.value) {
                     shiftTimeInput.value = '420';
                 }
+                // Hide efficiency and available time fields for target method
+                efficiencyField.style.display = 'none';
+                efficiencyInput.required = false;
+                efficiencyInput.value = '';
+                availableTimeField.style.display = 'none';
+                availableTimeInput.required = false;
+                availableTimeInput.value = '';
             } else { // auto
                 pitchTimeField.style.display = 'none';
                 pitchTimeInput.required = false;
@@ -2784,6 +2960,15 @@ HTML_TEMPLATE = """
                 productionTargetField.style.display = 'none';
                 shiftTimeField.style.display = 'none';
                 shiftTimeInput.value = '';
+                // Show efficiency and available time fields for auto method
+                efficiencyField.style.display = 'flex';
+                efficiencyInput.required = false;
+                availableTimeField.style.display = 'flex';
+                availableTimeInput.required = false;
+                // Set default available time only if field is empty
+                if (!availableTimeInput.value) {
+                    availableTimeInput.value = '420';
+                }
             }
         }
 

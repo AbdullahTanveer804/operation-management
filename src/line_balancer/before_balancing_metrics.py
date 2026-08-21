@@ -303,6 +303,8 @@ def calculate_all_before_metrics(
     tolerance: float = DEFAULT_TOLERANCE,
     pitch_time_method: str = "auto",
     manual_pitch_time: Optional[float] = None,
+    efficiency_percentage: Optional[float] = None,
+    available_time_minutes: Optional[float] = None,
 ) -> dict:
     """
     Calculate all before-balancing metrics.
@@ -314,6 +316,8 @@ def calculate_all_before_metrics(
         tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function.
         pitch_time_method: Method for calculating time ("auto", "manual", "target")
         manual_pitch_time: Optional manual takt time (required when method is "manual")
+        efficiency_percentage: Optional efficiency percentage for Target calculation (0-100)
+        available_time_minutes: Optional available time in minutes for Target calculation
     
     Returns:
         Dictionary containing all before-balancing metrics
@@ -359,6 +363,14 @@ def calculate_all_before_metrics(
     if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
         line_efficiency = calculate_before_line_efficiency(operations, production_target, shift_time_minutes)
     
+    # Calculate Target if both efficiency and available time are provided
+    target = None
+    if efficiency_percentage is not None and available_time_minutes is not None:
+        # Target = (Efficiency% × Total Manpower × Available Time(minutes)) / Total Basic Time(SAM in Minutes)
+        total_basic_time_minutes_for_target = total_basic_time / 60  # Convert to minutes
+        if total_basic_time_minutes_for_target > 0:
+            target = (efficiency_percentage / 100 * total_manpower * available_time_minutes) / total_basic_time_minutes_for_target
+    
     return {
         "pitch_time": pitch_time,
         "pitch_time_source": pitch_time_source,
@@ -373,4 +385,5 @@ def calculate_all_before_metrics(
         "balance_delay": balance_delay,
         "smoothing_index": smoothing_index,
         "tolerance": tolerance,
+        "target": target,
     }
