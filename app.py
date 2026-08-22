@@ -143,6 +143,17 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         if total_basic_time_minutes_after > 0:
             target_after = (efficiency_percentage / 100 * total_manpower_after * available_time_minutes) / total_basic_time_minutes_after
     
+    # Step 4.11: Calculate Labour Productivity for before and after balancing
+    # Labour Productivity = Production Target (Customer Demand) / Total Manpower
+    # Use production_target if provided (target method), otherwise use calculated target
+    labour_productivity_before = before_metrics.get("labour_productivity")
+    
+    labour_productivity_after = None
+    target_for_productivity_after = production_target if production_target is not None else target_after
+    total_manpower_after = sum(ws.manpower for ws in workstations)
+    if target_for_productivity_after is not None and total_manpower_after > 0:
+        labour_productivity_after = target_for_productivity_after / total_manpower_after
+    
     # Step 5: Build report
     report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time, pitch_time_source)
     
@@ -168,6 +179,8 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "available_time_minutes": available_time_minutes,
         "target_before": target_before,
         "target_after": target_after,
+        "labour_productivity_before": labour_productivity_before,
+        "labour_productivity_after": labour_productivity_after,
     }
 
 
@@ -226,16 +239,20 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
         ax.set_ylim(0, y_max)
     
     # Set labels and title
-    ax.set_xlabel('Workstations', fontsize=12, fontweight='500')
-    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500')
+    ax.set_xlabel('Workstations', fontsize=12, fontweight='500', color='#333333')
+    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500', color='#333333')
     ax.set_title('After Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
     
     # Set x-axis ticks to workstation names
     ax.set_xticks(range(len(workstation_names)))
-    ax.set_xticklabels(workstation_names, rotation=45, ha='right', fontsize=9)
+    ax.set_xticklabels(workstation_names, rotation=45, ha='right', fontsize=9, color='#333333')
     
     # Format y-axis labels
-    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10)
+    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10, color='#333333')
+    
+    # Set tick colors
+    ax.tick_params(axis='x', colors='#333333')
+    ax.tick_params(axis='y', colors='#333333')
     
     # Create custom legend with reference lines
     from matplotlib.lines import Line2D
@@ -245,7 +262,7 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
         Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label),
         Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
     ]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
     
     # Add grid for better readability
     ax.grid(axis='y', alpha=0.1, linestyle='-')
@@ -254,6 +271,12 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     # Set background color to white for Excel export
     ax.set_facecolor('white')
     fig.patch.set_facecolor('white')
+    
+    # Set axis colors for light theme visibility
+    ax.spines['bottom'].set_color('#333333')
+    ax.spines['top'].set_color('#333333') 
+    ax.spines['left'].set_color('#333333')
+    ax.spines['right'].set_color('#333333')
     
     # Adjust layout to prevent label cutoff
     plt.tight_layout()
@@ -318,16 +341,20 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
         ax.set_ylim(0, y_max)
     
     # Set labels and title
-    ax.set_xlabel('Operations', fontsize=12, fontweight='500')
-    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500')
+    ax.set_xlabel('Operations', fontsize=12, fontweight='500', color='#333333')
+    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500', color='#333333')
     ax.set_title('Before Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
     
     # Set x-axis ticks to operation names
     ax.set_xticks(range(len(operation_names)))
-    ax.set_xticklabels(operation_names, rotation=45, ha='right', fontsize=9)
+    ax.set_xticklabels(operation_names, rotation=45, ha='right', fontsize=9, color='#333333')
     
     # Format y-axis labels
-    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10)
+    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10, color='#333333')
+    
+    # Set tick colors
+    ax.tick_params(axis='x', colors='#333333')
+    ax.tick_params(axis='y', colors='#333333')
     
     # Create custom legend with reference lines
     from matplotlib.lines import Line2D
@@ -337,7 +364,7 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
         Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label),
         Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
     ]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
     
     # Add grid for better readability
     ax.grid(axis='y', alpha=0.1, linestyle='-')
@@ -346,6 +373,12 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
     # Set background color to white for Excel export
     ax.set_facecolor('white')
     fig.patch.set_facecolor('white')
+    
+    # Set axis colors for light theme visibility
+    ax.spines['bottom'].set_color('#333333')
+    ax.spines['top'].set_color('#333333') 
+    ax.spines['left'].set_color('#333333')
+    ax.spines['right'].set_color('#333333')
     
     # Adjust layout to prevent label cutoff
     plt.tight_layout()
@@ -2636,7 +2669,7 @@ HTML_TEMPLATE = """
                 <div class="field">
                     <label>Time Method</label>
                     <select name="pitch_time_method" id="pitch_time_method" onchange="togglePitchTimeInput()">
-                        <option value="auto">Pitch time</option>
+                        <option value="auto">Pitch time (Auto)</option>
                         <option value="manual">Takt time (Manual)</option>
                         <option value="target">Takt time (By target)</option>
                     </select>
@@ -2658,11 +2691,11 @@ HTML_TEMPLATE = """
                     <input type="number" name="shift_time" id="shift_time_input" value="420" placeholder="Shift duration in minutes" min="0" step="1">
                 </div>
                 <div class="field" id="efficiency_field">
-                    <label>Efficiency %</label>
+                    <label>Required Efficiency %</label>
                     <input type="number" name="efficiency" id="efficiency_input" value="" placeholder="Required efficiency (0-100)" min="0" max="100" step="0.1">
                 </div>
                 <div class="field" id="available_time_field">
-                    <label>Available Time (Efficiency)</label>
+                    <label>Available Time</label>
                     <input type="number" name="available_time" id="available_time_input" value="420" placeholder="Available time in minutes" min="0" step="1">
                 </div>
                 <div class="field">
@@ -2760,7 +2793,7 @@ HTML_TEMPLATE = """
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
-                    Show Balancing Results
+                    Balancing Results
                 </button>
             </div>
 
@@ -2788,7 +2821,9 @@ HTML_TEMPLATE = """
                                     </td>
                                     <td class="after-cell">
                                         <span class="metric-label">Composite Operations</span>
-                                        <span class="metric-value">{{ result.workstations|length }}</span>
+                                        {% set after_operations = result.workstations|length %}
+                                        {% set arrow = '↑' if after_operations > result.before_metrics.num_operations else ('↓' if after_operations < result.before_metrics.num_operations else '') %}
+                                        <span class="metric-value">{{ after_operations }}{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                     </td>
                                 </tr>
                                 <tr>
@@ -2797,45 +2832,9 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ result.before_metrics.total_manpower }}</span>
                                     </td>
                                     <td class="after-cell">
-                                        <span class="metric-value">{{ result.workstations|map(attribute='manpower')|sum }}</span>
-                                    </td>
-                                </tr>
-                                {% if result.before_metrics.line_efficiency or result.line_efficiency %}
-                                <tr>
-                                    <td class="metric-name">Line Efficiency %</td>
-                                    <td class="before-cell">
-                                        <span class="metric-value">{% if result.before_metrics.line_efficiency %}{{ "%.1f"|format(result.before_metrics.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
-                                    </td>
-                                    <td class="after-cell">
-                                        <span class="metric-value">{% if result.line_efficiency %}{{ "%.1f"|format(result.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
-                                    </td>
-                                </tr>
-                                {% endif %}
-                                <tr>
-                                    <td class="metric-name">Balancing Rate</td>
-                                    <td class="before-cell">
-                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span class="unit">%</span></span>
-                                    </td>
-                                    <td class="after-cell">
-                                        <span class="metric-value">{{ "%.1f"|format(result.line_balancing_rate) }}<span class="unit">%</span></span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="metric-name">Balance Delay</td>
-                                    <td class="before-cell">
-                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span class="unit">%</span></span>
-                                    </td>
-                                    <td class="after-cell">
-                                        <span class="metric-value">{{ "%.1f"|format(result.balance_delay) }}<span class="unit">%</span></span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="metric-name">Smoothing Index</td>
-                                    <td class="before-cell">
-                                        <span class="metric-value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span class="unit"> min</span></span>
-                                    </td>
-                                    <td class="after-cell">
-                                        <span class="metric-value">{{ "%.2f"|format(result.smoothing_index) }}<span class="unit"> min</span></span>
+                                        {% set after_manpower = result.workstations|map(attribute='manpower')|sum %}
+                                        {% set arrow = '↑' if after_manpower > result.before_metrics.total_manpower else ('↓' if after_manpower < result.before_metrics.total_manpower else '') %}
+                                        <span class="metric-value">{{ after_manpower }}{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                     </td>
                                 </tr>
                                 {% if result.target_before is not none and result.target_after is not none %}
@@ -2845,10 +2844,73 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ "%.2f"|format(result.target_before) }}<span class="unit"> units</span></span>
                                     </td>
                                     <td class="after-cell">
-                                        <span class="metric-value">{{ "%.2f"|format(result.target_after) }}<span class="unit"> units</span></span>
+                                        {% set arrow = '↑' if result.target_after > result.target_before else ('↓' if result.target_after < result.target_before else '') %}
+                                        <span class="metric-value">{{ "%.2f"|format(result.target_after) }}{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}<span class="unit"> units</span></span>
                                     </td>
                                 </tr>
                                 {% endif %}
+                                {% if result.labour_productivity_before is not none or result.labour_productivity_after is not none %}
+                                <tr>
+                                    <td class="metric-name">Labour Productivity</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{% if result.labour_productivity_before is not none %}{{ "%.0f"|format(result.labour_productivity_before) }}{% else %}N/A{% endif %}<span class="unit"> units/person</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% if result.labour_productivity_before is not none and result.labour_productivity_after is not none %}
+                                            {% set arrow = '↑' if result.labour_productivity_after > result.labour_productivity_before else ('↓' if result.labour_productivity_after < result.labour_productivity_before else '') %}
+                                            <span class="metric-value">{{ "%.0f"|format(result.labour_productivity_after) }}<span class="unit"> units/person</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
+                                        {% else %}
+                                            <span class="metric-value">{% if result.labour_productivity_after is not none %}{{ "%.0f"|format(result.labour_productivity_after) }}{% else %}N/A{% endif %}<span class="unit"> units/person</span></span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% if result.before_metrics.line_efficiency or result.line_efficiency %}
+                                <tr>
+                                    <td class="metric-name">Required Line Efficiency</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{% if result.before_metrics.line_efficiency %}{{ "%.1f"|format(result.before_metrics.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% if result.before_metrics.line_efficiency and result.line_efficiency %}
+                                            {% set arrow = '↑' if result.line_efficiency > result.before_metrics.line_efficiency else ('↓' if result.line_efficiency < result.before_metrics.line_efficiency else '') %}
+                                            <span class="metric-value">{{ "%.1f"|format(result.line_efficiency) }}<span class="unit">%</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
+                                        {% else %}
+                                            <span class="metric-value">{% if result.line_efficiency %}{{ "%.1f"|format(result.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <td class="metric-name">Balancing Rate</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span class="unit">%</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% set arrow = '↑' if result.line_balancing_rate > result.before_metrics.balancing_rate else ('↓' if result.line_balancing_rate < result.before_metrics.balancing_rate else '') %}
+                                        <span class="metric-value">{{ "%.1f"|format(result.line_balancing_rate) }}<span class="unit">%</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="metric-name">Balance Delay</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span class="unit">%</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% set arrow = '↑' if result.balance_delay > result.before_metrics.balance_delay else ('↓' if result.balance_delay < result.before_metrics.balance_delay else '') %}
+                                        <span class="metric-value">{{ "%.1f"|format(result.balance_delay) }}<span class="unit">%</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="metric-name">Smoothing Index</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span class="unit"> min</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% set arrow = '↑' if result.smoothing_index > result.before_metrics.smoothing_index else ('↓' if result.smoothing_index < result.before_metrics.smoothing_index else '') %}
+                                        <span class="metric-value">{{ "%.2f"|format(result.smoothing_index) }}<span class="unit"> min</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -3008,7 +3070,7 @@ HTML_TEMPLATE = """
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
-                    Show Balancing Results
+                    Balancing Results
                 `;
                 button.onclick = showBalancingResults;
             }
@@ -3084,7 +3146,7 @@ HTML_TEMPLATE = """
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
-                    Show Balancing Results
+                    Balancing Results
                 `;
                 button.onclick = showBalancingResults;
                 
@@ -3353,7 +3415,7 @@ HTML_TEMPLATE = """
             
             // Get theme colors - grey text for light mode, white for dark mode
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-            const textColor = isDark ? '#ffffff' : '#64748b'; // White in dark, grey in light
+            const textColor = isDark ? '#ffffff' : '#333333'; // White in dark, dark grey in light
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             
             // Determine pitch time label based on source

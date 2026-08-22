@@ -371,6 +371,14 @@ def calculate_all_before_metrics(
         if total_basic_time_minutes_for_target > 0:
             target = (efficiency_percentage / 100 * total_manpower * available_time_minutes) / total_basic_time_minutes_for_target
     
+    # Calculate Labour Productivity
+    # Labour Productivity = Production Target (Customer Demand) / Total Manpower
+    # Use production_target if provided (target method), otherwise use calculated target
+    labour_productivity = None
+    target_for_productivity = production_target if production_target is not None else target
+    if target_for_productivity is not None and total_manpower > 0:
+        labour_productivity = target_for_productivity / total_manpower
+    
     return {
         "pitch_time": pitch_time,
         "pitch_time_source": pitch_time_source,
@@ -386,4 +394,5 @@ def calculate_all_before_metrics(
         "smoothing_index": smoothing_index,
         "tolerance": tolerance,
         "target": target,
+        "labour_productivity": labour_productivity,
     }
