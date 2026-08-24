@@ -37,7 +37,16 @@ HELPER_MACHINES = {"By Hand", "Pointer", "Pencil", "Clipper", "Press"}
 
 
 def is_within_range(time: float, ucl: float, lcl: float) -> bool:
-    """Check if a time value falls within the acceptable band [LCL, UCL]."""
+    """Check if a time value falls within the acceptable band [LCL, UCL].
+    
+    If ucl and lcl are None (for manual/target methods), check if time is close to target (within 10%).
+    """
+    if ucl is None or lcl is None:
+        # For manual/target methods, use the ucl as target and allow 10% flexibility
+        target = ucl if ucl is not None else lcl
+        if target is None:
+            return True  # No constraints if both are None
+        return time <= target * 1.1  # Allow 10% above target
     return lcl <= time <= ucl
 
 
@@ -154,55 +163,61 @@ def find_compatible_operations(
     return compatible
 
 
-def find_best_manpower_split(time_value: float, ucl: float, lcl: float, max_operators: int = 10):
+def find_best_manpower_split(time_value: float, ucl: float, lcl: float, max_operators: int = 10, strict: bool = False):
     """
     Find how many operators are needed to make this time acceptable.
     
     LOGIC:
     - Start with M/P = 1 (time unchanged)
-    - If time > UCL + 0.5, try M/P = 2 (time / 2), then 3, etc.
-    - Keep dividing until time/manpower <= UCL + 0.5
+    - If time > UCL + 0.5 (or UCL when strict=True), try M/P = 2 (time / 2), then 3, etc.
+    - Keep dividing until time/manpower <= UCL + 0.5 (or UCL when strict=True)
     - Don't stop even if it goes below LCL - priority is staying at or below UCL + 0.5
-    - 0.5 second flexibility is allowed before increasing manpower
+    - 0.5 second flexibility is allowed before increasing manpower (auto method only)
+    - strict=True disables the 0.5s relaxation (used for manual/target methods)
     
     Args:
         time_value: The time to split (basic time or combined time)
-        ucl: Upper control limit
+        ucl: Upper control limit (or target time for manual/target methods)
         lcl: Lower control limit (not used in current logic but kept for interface)
         max_operators: Maximum M/P to try
+        strict: If True, no 0.5s relaxation is added (for manual/target methods)
     
     Returns:
         (manpower, resulting_time_per_operator)
     """
-    # Add 0.5 second flexibility to UCL
-    ucl_with_flexibility = ucl + 0.5
-    
-    # If already at or below UCL + 0.5, no splitting needed
-    if time_value <= ucl_with_flexibility:
+    target = ucl if ucl is not None else lcl
+    if target is None:
+        # No target specified, return as-is
         return 1, time_value
     
-    # Keep increasing manpower until time/manpower <= UCL + 0.5
+    # 0.5s flexibility only for auto method; strict mode uses exact target
+    target_with_flexibility = target if strict else target + 0.5
+    
+    # If already at or below target (with flexibility), no splitting needed
+    if time_value <= target_with_flexibility:
+        return 1, time_value
+    
+    # Keep increasing manpower until time/manpower <= target (with flexibility)
     for manpower in range(2, max_operators + 1):
         time_per_op = time_value / manpower
         
-        # Once we're at or below UCL + 0.5, return this split
-        if time_per_op <= ucl_with_flexibility:
+        if time_per_op <= target_with_flexibility:
             return manpower, time_per_op
     
-    # If we hit max_operators and still above UCL + 0.5, return the best we found
+    # If we hit max_operators and still above target, return the best we found
     return max_operators, time_value / max_operators
 
 
-def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float) -> List[Workstation]:
+def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float, strict: bool = False) -> List[Workstation]:
     """
     Process operations in Serial No. order and assign them to workstations,
     combining operations and adjusting manpower as needed to stay within
-    the UCL/LCL band.
+    the UCL/LCL band (or target time for manual/target methods).
     
     Args:
         sorted_operations: Operations sorted by ID (ascending)
-        ucl: Upper Control Limit
-        lcl: Lower Control Limit
+        ucl: Upper Control Limit (or target time for manual/target methods)
+        lcl: Lower Control Limit (or target time for manual/target methods)
     
     Returns:
         List of Workstation objects (grouped and balanced)
@@ -251,7 +266,7 @@ def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float
             else:
                 # Combined time is still outside the band
                 # Split across multiple operators
-                manpower, balancing_sam = find_best_manpower_split(combined_time, ucl, lcl)
+                manpower, balancing_sam = find_best_manpower_split(combined_time, ucl, lcl, strict=strict)
                 ws = Workstation(
                     operations=[current_op, partner_op],
                     manpower=manpower,
@@ -263,7 +278,7 @@ def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float
         else:
             # ===== STEP 3b: Standalone path (no compatible operation found) =====
             # Operation couldn't find a partner, try splitting it alone
-            manpower, balancing_sam = find_best_manpower_split(current_op.basic_time, ucl, lcl)
+            manpower, balancing_sam = find_best_manpower_split(current_op.basic_time, ucl, lcl, strict=strict)
             ws = Workstation(
                 operations=[current_op],
                 manpower=manpower,

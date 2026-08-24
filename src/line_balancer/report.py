@@ -23,12 +23,23 @@ def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
     
     Args:
         balancing_sam: The balanced time per operator
-        ucl: Upper Control Limit
-        lcl: Lower Control Limit
+        ucl: Upper Control Limit (or target time for manual/target methods)
+        lcl: Lower Control Limit (or target time for manual/target methods)
     
     Returns:
         Status string: "OK", "> UCL (review)", or "< LCL (review)"
+        For manual/target methods, returns "OK" if within 10% of target
     """
+    if ucl is None or lcl is None:
+        # For manual/target methods, use target (ucl) and allow 10% flexibility
+        target = ucl if ucl is not None else lcl
+        if target is None:
+            return "OK"  # No constraints
+        if balancing_sam > target * 1.1:
+            return "> Target (review)"
+        else:
+            return "OK"
+    
     if balancing_sam > ucl:
         return "> UCL (review)"
     elif balancing_sam < lcl:
@@ -49,17 +60,17 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
     5. Predecessor - Predecessor IDs joined with " + " for combined (e.g., "1 + 18")
     6. Basic Time - Individual basic times joined with " + " for combined
     7. Pitch Time / Takt Time - Constant pitch/takt time value (repeated for each row)
-    8. UCL - Constant Upper Control Limit value (repeated for each row)
-    9. LCL - Constant Lower Control Limit value (repeated for each row)
+    8. UCL - Constant Upper Control Limit value (repeated for each row) - ONLY for auto method
+    9. LCL - Constant Lower Control Limit value (repeated for each row) - ONLY for auto method
     10. Combined Basic Time - Total time for the workstation
     11. M/P - Manpower needed
     12. Balancing SAM - Time per operator after balancing
-    13. Status - OK / > UCL / < LCL
+    13. Status - OK / > UCL / < LCL / > Target
     
     Args:
         workstations: List of Workstation objects
-        ucl: Upper Control Limit (optional, for status determination and column)
-        lcl: Lower Control Limit (optional, for status determination and column)
+        ucl: Upper Control Limit (optional, for status determination and column - only for auto method)
+        lcl: Lower Control Limit (optional, for status determination and column - only for auto method)
         pitch_time: Pitch time (optional, for column)
         pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
     
@@ -73,6 +84,9 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         pitch_time_column_name = "Takt Time"
     else:
         pitch_time_column_name = "Pitch Time"
+    
+    # Check if UCL/LCL should be included (only for auto method)
+    include_ucl_lcl = (pitch_time_source == "calculated")
     
     for ws_num, ws in enumerate(workstations, start=1):
         # Build combined representations using " + " as separator
@@ -99,11 +113,14 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         
         # Determine status
         status = "OK"
-        if ucl is not None and lcl is not None:
+        if include_ucl_lcl and ucl is not None and lcl is not None:
             status = determine_status(ws.balancing_sam, ucl, lcl)
+        elif not include_ucl_lcl:
+            # For manual/target methods, use pitch_time as target
+            status = determine_status(ws.balancing_sam, pitch_time, pitch_time)
         
-        # Add row to report
-        rows.append({
+        # Build row dictionary
+        row = {
             "Composite Operations": int(ws_num),  # Ensure workstation number is stored as integer
             "Serial/Id": op_ids,
             "Operations": op_names,
@@ -114,10 +131,15 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
             "Balancing SAM": round(ws.balancing_sam, 1),
             "M/P": ws.manpower,
             pitch_time_column_name: round(pitch_time, 1) if pitch_time is not None else "",
-            "UCL": round(ucl, 1) if ucl is not None else "",
-            "LCL": round(lcl, 1) if lcl is not None else "",
             "Status": status,
-        })
+        }
+        
+        # Only add UCL/LCL columns for auto method
+        if include_ucl_lcl:
+            row["UCL"] = round(ucl, 1) if ucl is not None else ""
+            row["LCL"] = round(lcl, 1) if lcl is not None else ""
+        
+        rows.append(row)
     
     df = pd.DataFrame(rows)
     # Ensure Workstation column is integer type
@@ -200,12 +222,14 @@ def print_summary(
     else:
         time_display_name = "Pitch Time"
     print(f"{time_display_name}: {pitch_time:.1f}s ({pitch_time_source})")
-    if tolerance != 0.15:
-        print(f"Tolerance (Manual): {tolerance * 100:.1f}%")
-    else:
-        print(f"Tolerance: {tolerance * 100:.1f}%")
-    print(f"UCL: {ucl:.1f}s")
-    print(f"LCL: {lcl:.1f}s")
+    # Only show tolerance and UCL/LCL for auto method
+    if pitch_time_source == "calculated":
+        if tolerance != 0.15:
+            print(f"Tolerance (Manual): {tolerance * 100:.1f}%")
+        else:
+            print(f"Tolerance: {tolerance * 100:.1f}%")
+        print(f"UCL: {ucl:.1f}s")
+        print(f"LCL: {lcl:.1f}s")
     print(f"Balancing Rate: {line_balancing_rate:.1f}%")
     if balance_delay is not None:
         print(f"Balance Delay: {balance_delay:.1f}%")

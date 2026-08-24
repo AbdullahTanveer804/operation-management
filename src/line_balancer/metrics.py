@@ -31,37 +31,36 @@ def calculate_pitch_time(operations: List[Operation]) -> float:
     return total_basic_time / count
 
 
-def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float, tolerance: float = DEFAULT_TOLERANCE) -> float:
+def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float) -> float:
     """
-    Calculate pitch time from production target and shift time.
+    Calculate Takt Time from production target and shift time.
     
     Note: When calculated from target, this is called "Takt Time" in the UI,
     though the function name remains for backward compatibility.
     
     Formula:
-    - UCL = (Production Target / Shift time) * 60
-    - Pitch time = UCL - (UCL * tolerance)
+    - Takt Time = (Shift time / Production Target) - result is in minutes
+    - Convert to seconds for internal use (multiply by 60)
     
     Args:
         production_target: Production target (number of units)
         shift_time_minutes: Shift time in minutes
-        tolerance: Tolerance percentage (default 0.15 for 15%)
     
     Returns:
-        Calculated pitch time
+        Calculated takt time in seconds
     """
     if production_target <= 0:
         raise ValueError("Production target must be a positive number.")
     if shift_time_minutes <= 0:
         raise ValueError("Shift time must be a positive number.")
     
-    # Calculate UCL
-    ucl = (production_target / shift_time_minutes) * 60
+    # Calculate takt time in minutes
+    takt_time_minutes = shift_time_minutes / production_target
     
-    # Calculate pitch time = UCL - (UCL * tolerance)
-    pitch_time = ucl - (ucl * tolerance)
+    # Convert to seconds for internal use
+    takt_time_seconds = takt_time_minutes * 60
     
-    return pitch_time
+    return takt_time_seconds
 
 
 def calculate_tolerance_bands(pitch_time: float, tolerance: float = DEFAULT_TOLERANCE) -> Tuple[float, float]:

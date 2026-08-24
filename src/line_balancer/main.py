@@ -51,7 +51,12 @@ def run_workflow(
     # STEP 2: Sort operations by Serial No. / ID (ascending)
     sorted_operations = sort_by_id(raw_operations)
 
-    # STEP 3 & 4: Calculate Pitch Time based on method
+    # STEP 3 & 4: Calculate Pitch Time / Takt Time and balance based on method
+    demand_met = None
+    target_validation_message = None
+    target_recheck_messages = []
+    target_recheck_summary = None
+
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
             raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
@@ -60,24 +65,67 @@ def run_workflow(
         # Clear target-related parameters for manual method
         production_target = None
         shift_time_minutes = None
+        # No tolerance bands for manual method
+        ucl = None
+        lcl = None
+        # STEP 5: Balance operations into workstations
+        workstations = group_and_balance(sorted_operations, pitch_time, pitch_time, strict=True)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError("Production target must be provided and positive when method is 'target'.")
         if shift_time_minutes is None or shift_time_minutes <= 0:
             raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes, tolerance)
+        
+        # Step 1 — Derive Takt Time from By-Target input
+        takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+        pitch_time = takt_time
         pitch_time_source = "By Target"
+        ucl = None
+        lcl = None
+
+        # Step 2 — Validate BEFORE balancing
+        max_sam = max(op.basic_time for op in sorted_operations) if sorted_operations else 0.0
+        if max_sam > takt_time:
+            demand_met = False
+            target_validation_message = "Max basic time (SAM) exceeds Takt Time — customer demand target is NOT currently met."
+        else:
+            demand_met = True
+            target_validation_message = "Max basic time (SAM) is within Takt Time — customer demand target is met."
+
+        # Step 3 — Balance the line using Pitch Time Auto logic
+        auto_pitch_time = calculate_pitch_time(sorted_operations)
+        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance if tolerance is not None else 0.15)
+        workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl)
+
+        # Step 4 — Recheck balanced result against Takt Time, loop until it passes or safety cap is hit
+        attempt = 1
+        MAX_ATTEMPTS = 5
+        target_recheck_messages = []
+
+        while attempt <= MAX_ATTEMPTS:
+            recheck_max_sam = max(ws.balancing_sam for ws in workstations) if workstations else 0.0
+            if recheck_max_sam <= takt_time:
+                target_recheck_messages.append("Balancing OK — result satisfies Takt Time.")
+                target_recheck_summary = f"Balancing OK — result satisfies Takt Time (Attempt {attempt})."
+                break
+            else:
+                target_recheck_messages.append(f"Balancing not OK (attempt {attempt}) — re-balancing required.")
+                workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl)
+                attempt += 1
+
+        if attempt > MAX_ATTEMPTS:
+            target_recheck_messages.append(f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result.")
+            target_recheck_summary = f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result."
     else:  # auto (default)
         pitch_time = calculate_pitch_time(sorted_operations)
         pitch_time_source = "calculated"
         # Clear target-related parameters for auto method
         production_target = None
         shift_time_minutes = None
-    
-    ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
-
-    # STEP 5: Balance operations into workstations
-    workstations = group_and_balance(sorted_operations, ucl, lcl)
+        # Calculate tolerance bands for auto method
+        ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
+        # STEP 5: Balance operations into workstations
+        workstations = group_and_balance(sorted_operations, ucl, lcl)
 
     # STEP 6: Calculate line balancing rate
     line_balancing_rate = calculate_line_balancing_rate(workstations)
@@ -118,6 +166,10 @@ def run_workflow(
         "smoothing_index": smoothing_index,
         "flagged_ops": flagged_ops,
         "report_df": report_df,
+        "demand_met": demand_met,
+        "target_validation_message": target_validation_message,
+        "target_recheck_messages": target_recheck_messages,
+        "target_recheck_summary": target_recheck_summary,
     }
 
 

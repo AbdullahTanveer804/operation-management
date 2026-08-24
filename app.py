@@ -56,13 +56,13 @@ def get_calculation(session_id: str) -> Optional[Dict]:
     return result
 
 
-def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manual_pitch_time: Optional[float] = None, production_target: Optional[int] = None, shift_time_minutes: Optional[float] = None, pitch_time_method: str = "auto", efficiency_percentage: Optional[float] = None, available_time_minutes: Optional[float] = None) -> Dict:
+def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 0.15, manual_pitch_time: Optional[float] = None, production_target: Optional[int] = None, shift_time_minutes: Optional[float] = None, pitch_time_method: str = "auto", efficiency_percentage: Optional[float] = None, available_time_minutes: Optional[float] = None) -> Dict:
     """
     Run the complete balancing calculation and return all results.
     
     Args:
         operations: List of Operation objects from CSV/Excel
-        tolerance: UCL/LCL tolerance (default 15%)
+        tolerance: UCL/LCL tolerance (default 15%, only used for auto method)
         manual_pitch_time: Optional manual pitch time override
         production_target: Optional production target for line efficiency calculation and pitch time calculation
         shift_time_minutes: Optional shift time in minutes for line efficiency calculation and pitch time calculation
@@ -76,7 +76,12 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     # Step 1: Sort operations by ID
     sorted_ops = sort_by_id(operations)
     
-    # Step 2: Calculate Pitch Time / Takt Time based on method
+    # Step 2: Calculate Pitch Time / Takt Time and balance based on method
+    demand_met = None
+    target_validation_message = None
+    target_recheck_messages = []
+    target_recheck_summary = None
+
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
             raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
@@ -85,24 +90,69 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         # Clear target-related parameters for manual method
         production_target = None
         shift_time_minutes = None
+        # No tolerance bands for manual method
+        ucl = None
+        lcl = None
+        # Step 3: Balance operations into workstations
+        workstations = group_and_balance(sorted_ops, pitch_time, pitch_time)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError("Production target must be provided and positive when method is 'target'.")
         if shift_time_minutes is None or shift_time_minutes <= 0:
             raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes, tolerance)
+        
+        # Step 1 — Derive Takt Time from By-Target input
+        takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+        pitch_time = takt_time
         pitch_time_source = "By Target"
+        ucl = None
+        lcl = None
+
+        # Step 2 — Validate BEFORE balancing
+        max_sam = max(op.basic_time for op in sorted_ops) if sorted_ops else 0.0
+        if max_sam > takt_time:
+            demand_met = False
+            target_validation_message = "Max basic time (SAM) exceeds Takt Time — customer demand target is NOT currently met."
+        else:
+            demand_met = True
+            target_validation_message = "Max basic time (SAM) is within Takt Time — customer demand target is met."
+
+        # Step 3 — Balance the line using Pitch Time Auto logic
+        auto_pitch_time = calculate_pitch_time(sorted_ops)
+        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance if tolerance is not None else 0.15)
+        workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl)
+
+        # Step 4 — Recheck balanced result against Takt Time, loop until it passes or safety cap is hit
+        attempt = 1
+        MAX_ATTEMPTS = 5
+        target_recheck_messages = []
+
+        while attempt <= MAX_ATTEMPTS:
+            recheck_max_sam = max(ws.balancing_sam for ws in workstations) if workstations else 0.0
+            if recheck_max_sam <= takt_time:
+                target_recheck_messages.append("Balancing OK — result satisfies Takt Time.")
+                target_recheck_summary = f"Balancing OK — result satisfies Takt Time (Attempt {attempt})."
+                break
+            else:
+                target_recheck_messages.append(f"Balancing not OK (attempt {attempt}) — re-balancing required.")
+                workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl)
+                attempt += 1
+
+        if attempt > MAX_ATTEMPTS:
+            target_recheck_messages.append(f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result.")
+            target_recheck_summary = f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result."
     else:  # auto (default)
+        if tolerance is None:
+            tolerance = 0.15  # Default tolerance for auto method
         pitch_time = calculate_pitch_time(sorted_ops)
         pitch_time_source = "calculated"
         # Clear target-related parameters for auto method
         production_target = None
         shift_time_minutes = None
-    
-    ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
-    
-    # Step 3: Balance operations into workstations
-    workstations = group_and_balance(sorted_ops, ucl, lcl)
+        # Calculate tolerance bands for auto method
+        ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
+        # Step 3: Balance operations into workstations
+        workstations = group_and_balance(sorted_ops, ucl, lcl)
     
     # Step 4: Calculate line balancing rate
     line_balancing_rate = calculate_line_balancing_rate(workstations)
@@ -124,7 +174,9 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     total_basic_time = sum(op.basic_time for op in sorted_ops) / 60  # Convert seconds to minutes
     
     # Step 4.9: Calculate before-balancing metrics
-    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, tolerance, pitch_time_method, manual_pitch_time, efficiency_percentage, available_time_minutes)
+    # Only pass tolerance for auto method
+    before_tolerance = tolerance if pitch_time_method == "auto" else None
+    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, before_tolerance, pitch_time_method, manual_pitch_time, efficiency_percentage, available_time_minutes)
     
     # Step 4.10: Calculate Target (if both efficiency and available time are provided)
     target_before = None
@@ -157,7 +209,8 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
     # Step 5: Build report
     report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time, pitch_time_source)
     
-    return {
+    # Build return dictionary
+    result = {
         "operations": operations,
         "sorted_operations": sorted_ops,
         "pitch_time": pitch_time,
@@ -173,7 +226,6 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "production_target": production_target,
         "shift_time_minutes": shift_time_minutes,
         "report_df": report_df,
-        "tolerance": tolerance,
         "before_metrics": before_metrics,
         "efficiency_percentage": efficiency_percentage,
         "available_time_minutes": available_time_minutes,
@@ -181,7 +233,17 @@ def calculate_balance(operations: List[Operation], tolerance: float = 0.15, manu
         "target_after": target_after,
         "labour_productivity_before": labour_productivity_before,
         "labour_productivity_after": labour_productivity_after,
+        "demand_met": demand_met,
+        "target_validation_message": target_validation_message,
+        "target_recheck_messages": target_recheck_messages,
+        "target_recheck_summary": target_recheck_summary,
     }
+    
+    # Only include tolerance for auto method
+    if pitch_time_source == "calculated":
+        result["tolerance"] = tolerance
+    
+    return result
 
 
 def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None) -> io.BytesIO:
@@ -230,9 +292,12 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
                   label='Balancing SAM')
     
     # Add reference lines without labels (labels will be in legend)
-    ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
+    # Only show UCL/LCL for auto method
+    if pitch_time_source == "calculated":
+        ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
+        ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
+    # Always show pitch time/takt time line
     ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
-    ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
     
     # Set Y-axis maximum if provided
     if y_max is not None:
@@ -247,8 +312,11 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     ax.set_xticks(range(len(workstation_names)))
     ax.set_xticklabels(workstation_names, rotation=45, ha='right', fontsize=9, color='#333333')
     
-    # Format y-axis labels
-    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10, color='#333333')
+    # Format y-axis labels (lock ticks first to avoid matplotlib UserWarning)
+    from matplotlib.ticker import FixedLocator
+    yticks = ax.get_yticks()
+    ax.yaxis.set_major_locator(FixedLocator(yticks))
+    ax.set_yticklabels([f'{x:.1f}s' for x in yticks], fontsize=10, color='#333333')
     
     # Set tick colors
     ax.tick_params(axis='x', colors='#333333')
@@ -258,10 +326,16 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     from matplotlib.lines import Line2D
     legend_elements = [
         Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Balancing SAM'),
-        Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
-        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label),
-        Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label)
     ]
+    
+    # Only add UCL/LCL to legend for auto method
+    if pitch_time_source == "calculated":
+        legend_elements.extend([
+            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
+            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+        ])
+    
     ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
     
     # Add grid for better readability
@@ -332,9 +406,12 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
                   label='Basic Time (SAM)')
     
     # Add reference lines without labels (labels will be in legend)
-    ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
+    # Only show UCL/LCL for auto method
+    if pitch_time_source == "calculated":
+        ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
+        ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
+    # Always show pitch time/takt time line
     ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
-    ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
     
     # Set Y-axis maximum if provided
     if y_max is not None:
@@ -349,8 +426,11 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
     ax.set_xticks(range(len(operation_names)))
     ax.set_xticklabels(operation_names, rotation=45, ha='right', fontsize=9, color='#333333')
     
-    # Format y-axis labels
-    ax.set_yticklabels([f'{x:.1f}s' for x in ax.get_yticks()], fontsize=10, color='#333333')
+    # Format y-axis labels (lock ticks first to avoid matplotlib UserWarning)
+    from matplotlib.ticker import FixedLocator
+    yticks = ax.get_yticks()
+    ax.yaxis.set_major_locator(FixedLocator(yticks))
+    ax.set_yticklabels([f'{x:.1f}s' for x in yticks], fontsize=10, color='#333333')
     
     # Set tick colors
     ax.tick_params(axis='x', colors='#333333')
@@ -360,10 +440,16 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
     from matplotlib.lines import Line2D
     legend_elements = [
         Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Basic Time (SAM)'),
-        Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
-        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label),
-        Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label)
     ]
+    
+    # Only add UCL/LCL to legend for auto method
+    if pitch_time_source == "calculated":
+        legend_elements.extend([
+            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
+            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+        ])
+    
     ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
     
     # Add grid for better readability
@@ -421,16 +507,22 @@ def index():
             else:
                 # Parse parameters
                 manual_pitch_time = float(pitch_time_str) if pitch_time_str else None
-                tolerance_percentage = float(tolerance_str)
+                tolerance_percentage = float(tolerance_str) if tolerance_str else None
                 production_target = int(production_target_str) if production_target_str else None
                 shift_time_minutes = float(shift_time_str) if shift_time_str else None
                 efficiency_percentage = float(efficiency_str) if efficiency_str else None
                 available_time_minutes = float(available_time_str) if available_time_str else None
                 
-                # Validate tolerance range (0-100% input)
-                if tolerance_percentage < 0 or tolerance_percentage > 100:
-                    error = "Tolerance must be between 0 and 100%."
-                tolerance = tolerance_percentage / 100  # Convert percentage to decimal
+                # Validate tolerance range (0-100% input) - only for auto method
+                tolerance = 0.15  # Default tolerance
+                if pitch_time_method == "auto":
+                    if tolerance_percentage is not None:
+                        if tolerance_percentage < 0 or tolerance_percentage > 100:
+                            error = "Tolerance must be between 0 and 100%."
+                        tolerance = tolerance_percentage / 100  # Convert percentage to decimal
+                else:
+                    # For manual and target methods, ignore tolerance
+                    tolerance = None
                 
                 # Validate efficiency if provided
                 if efficiency_percentage is not None:
@@ -505,9 +597,9 @@ def index():
                                         row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
                                     elif "Takt Time" in row and row["Takt Time"]:
                                         row["Takt Time"] = f"{row['Takt Time']:.1f}"
-                                    if row["UCL"]:
+                                    if row.get("UCL"):
                                         row["UCL"] = f"{row['UCL']:.1f}"
-                                    if row["LCL"]:
+                                    if row.get("LCL"):
                                         row["LCL"] = f"{row['LCL']:.1f}"
                                 
                                 # Generate session ID
@@ -690,44 +782,47 @@ def export(format: str, session_id: str):
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
-        # 8. Tolerance
-        tolerance_value = calc.get('tolerance', 0.15)
-        tolerance_percentage = tolerance_value * 100
-        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
-        if tolerance_percentage == int(tolerance_percentage):
-            formatted_tolerance = int(tolerance_percentage)
-        else:
-            truncated = int(tolerance_percentage * 10) / 10
-            formatted_tolerance = int(truncated) if truncated == int(truncated) else truncated
-        if tolerance_percentage != 15.0:
-            tolerance_label = f"Tolerance (Manual): {formatted_tolerance}%"
-        else:
-            tolerance_label = f"Tolerance: {formatted_tolerance}%"
-        worksheet[f'A{current_row}'] = tolerance_label
-        worksheet[f'A{current_row}'].font = Font(bold=True)
-        current_row += 1
+        # 8. Tolerance (only for auto method)
+        tolerance_value = calc.get('tolerance')
+        if tolerance_value is not None:
+            tolerance_percentage = tolerance_value * 100
+            # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+            if tolerance_percentage == int(tolerance_percentage):
+                formatted_tolerance = int(tolerance_percentage)
+            else:
+                truncated = int(tolerance_percentage * 10) / 10
+                formatted_tolerance = int(truncated) if truncated == int(truncated) else truncated
+            if tolerance_percentage != 15.0:
+                tolerance_label = f"Tolerance (Manual): {formatted_tolerance}%"
+            else:
+                tolerance_label = f"Tolerance: {formatted_tolerance}%"
+            worksheet[f'A{current_row}'] = tolerance_label
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
         
-        # 9. UCL
-        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
-        if calc['ucl'] == int(calc['ucl']):
-            formatted_ucl = int(calc['ucl'])
-        else:
-            truncated = int(calc['ucl'] * 10) / 10
-            formatted_ucl = int(truncated) if truncated == int(truncated) else truncated
-        worksheet[f'A{current_row}'] = f"UCL: {formatted_ucl}s"
-        worksheet[f'A{current_row}'].font = Font(bold=True)
-        current_row += 1
+        # 9. UCL (only for auto method)
+        if calc.get('ucl') is not None:
+            # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+            if calc['ucl'] == int(calc['ucl']):
+                formatted_ucl = int(calc['ucl'])
+            else:
+                truncated = int(calc['ucl'] * 10) / 10
+                formatted_ucl = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"UCL: {formatted_ucl}s"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
 
-        # 10. LCL
-        # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
-        if calc['lcl'] == int(calc['lcl']):
-            formatted_lcl = int(calc['lcl'])
-        else:
-            truncated = int(calc['lcl'] * 10) / 10
-            formatted_lcl = int(truncated) if truncated == int(truncated) else truncated
-        worksheet[f'A{current_row}'] = f"LCL: {formatted_lcl}s"
-        worksheet[f'A{current_row}'].font = Font(bold=True)
-        current_row += 1
+        # 10. LCL (only for auto method)
+        if calc.get('lcl') is not None:
+            # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
+            if calc['lcl'] == int(calc['lcl']):
+                formatted_lcl = int(calc['lcl'])
+            else:
+                truncated = int(calc['lcl'] * 10) / 10
+                formatted_lcl = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"LCL: {formatted_lcl}s"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
         
         # 11. Balancing Rate
         # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
@@ -935,7 +1030,7 @@ def recalculate():
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid available time value."}), 400
     
-    # Validate tolerance if provided
+    # Validate tolerance if provided (only for auto method)
     if tolerance is not None:
         try:
             tolerance = float(tolerance)
@@ -948,8 +1043,6 @@ def recalculate():
     # Recalculate with new parameters if provided
     try:
         operations = calc["operations"]
-        if tolerance is None:
-            tolerance = calc.get("tolerance", 0.15)
         
         # Determine pitch time method based on what parameters are provided
         if manual_pitch_time is not None:
@@ -957,18 +1050,23 @@ def recalculate():
             # Clear other parameters for manual method
             production_target = None
             shift_time_minutes = None
+            tolerance = None  # No tolerance for manual method
             # Keep efficiency and available time for manual method
         elif production_target is not None and shift_time_minutes is not None:
             pitch_time_method = "target"
             # Clear efficiency and available time for target method
             efficiency_percentage = None
             available_time_minutes = None
+            tolerance = None  # No tolerance for target method
         else:
             pitch_time_method = "auto"
             # Clear other parameters for auto method
             production_target = None
             shift_time_minutes = None
             # Keep efficiency and available time for auto method
+            # Use default tolerance if not provided
+            if tolerance is None:
+                tolerance = calc.get("tolerance", 0.15)
         
         result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method, efficiency_percentage, available_time_minutes)
         
@@ -989,7 +1087,6 @@ def recalculate():
                 "production_target": result["production_target"],
                 "shift_time_minutes": result["shift_time_minutes"],
                 "workstations_count": len(result["workstations"]),
-                "tolerance": result["tolerance"] * 100,  # Convert to percentage for display
                 "before_metrics": result["before_metrics"],
                 "efficiency_percentage": result["efficiency_percentage"],
                 "available_time_minutes": result["available_time_minutes"],
@@ -999,8 +1096,15 @@ def recalculate():
             "before_metrics": result["before_metrics"]
         }
         
+        # Only add tolerance and line_efficiency for auto method
         if result["line_efficiency"] is not None:
             response_data["result"]["line_efficiency"] = result["line_efficiency"]
+        
+        if result.get("pitch_time_source") == "By Target":
+            response_data["result"]["demand_met"] = result.get("demand_met")
+            response_data["result"]["target_validation_message"] = result.get("target_validation_message")
+            response_data["result"]["target_recheck_messages"] = result.get("target_recheck_messages", [])
+            response_data["result"]["target_recheck_summary"] = result.get("target_recheck_summary")
         
         return jsonify(response_data)
     except Exception as e:
@@ -1035,16 +1139,19 @@ def get_chart_data(session_id: str):
         "balancing_sam": [ws.balancing_sam for ws in workstations],
         "pitch_time": pitch_time,
         "pitch_time_source": calc.get("pitch_time_source", "calculated"),
-        "ucl": ucl,
-        "lcl": lcl,
         "line_balancing_rate": calc["line_balancing_rate"],
         "balance_delay": calc["balance_delay"],
         "smoothing_index": calc["smoothing_index"],
         "total_basic_time": calc["total_basic_time"],
         "production_target": calc.get("production_target"),
         "shift_time_minutes": calc.get("shift_time_minutes"),
-        "tolerance": calc.get("tolerance", 0.15) * 100  # Convert to percentage for display
     }
+    
+    # Only include UCL/LCL and tolerance for auto method
+    if calc.get("pitch_time_source") == "calculated":
+        chart_data["ucl"] = ucl
+        chart_data["lcl"] = lcl
+        chart_data["tolerance"] = calc.get("tolerance", 0.15) * 100  # Convert to percentage for display
     
     if calc.get("line_efficiency") is not None:
         chart_data["line_efficiency"] = calc["line_efficiency"]
@@ -1074,14 +1181,17 @@ def get_before_chart_data(session_id: str):
         "basic_times": basic_times,
         "pitch_time": before_metrics["pitch_time"],
         "pitch_time_source": before_metrics.get("pitch_time_source", "calculated"),
-        "ucl": before_metrics["ucl"],
-        "lcl": before_metrics["lcl"],
         "balancing_rate": before_metrics["balancing_rate"],
         "balance_delay": before_metrics["balance_delay"],
         "smoothing_index": before_metrics["smoothing_index"],
         "total_basic_time": before_metrics["total_basic_time"],
-        "tolerance": before_metrics["tolerance"] * 100  # Convert to percentage for display
     }
+    
+    # Only include UCL/LCL and tolerance for auto method
+    if before_metrics.get("pitch_time_source") == "calculated":
+        chart_data["ucl"] = before_metrics["ucl"]
+        chart_data["lcl"] = before_metrics["lcl"]
+        chart_data["tolerance"] = before_metrics["tolerance"] * 100  # Convert to percentage for display
     
     if before_metrics.get("line_efficiency") is not None:
         chart_data["line_efficiency"] = before_metrics["line_efficiency"]
@@ -1111,9 +1221,9 @@ def layout(session_id: str = None):
                     row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
                 elif "Takt Time" in row and row["Takt Time"]:
                     row["Takt Time"] = f"{row['Takt Time']:.1f}"
-                if row["UCL"]:
+                if row.get("UCL"):
                     row["UCL"] = f"{row['UCL']:.1f}"
-                if row["LCL"]:
+                if row.get("LCL"):
                     row["LCL"] = f"{row['LCL']:.1f}"
     
     return render_template_string(LAYOUT_TEMPLATE, session_id=session_id, has_data=calc is not None, result=calc, rows=rows)
@@ -1232,6 +1342,53 @@ LAYOUT_TEMPLATE = """
         .theme-toggle:hover {
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
+        /* Target Workflow Notifications */
+        .target-workflow-notice-container {
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .target-validation-banner {
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: var(--shadow);
+            transition: all var(--transition);
+        }
+
+        .target-validation-banner.success {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .target-validation-banner.warning {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid var(--warning);
+            color: var(--warning);
+        }
+
+        .target-recheck-banner {
+            padding: 12px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            box-shadow: var(--shadow);
+            flex-wrap: wrap;
         }
 
         /* Metrics Grid */
@@ -1615,6 +1772,49 @@ LAYOUT_TEMPLATE = """
                 </button>
             </div>
         </div>
+
+        {% if result.pitch_time_source == "By Target" and result.target_validation_message %}
+        <div class="target-workflow-notice-container">
+            <!-- Step 2 Validation Banner -->
+            <div class="target-validation-banner {% if result.demand_met %}success{% else %}warning{% endif %}">
+                {% if result.demand_met %}
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {% else %}
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                {% endif %}
+                <div>
+                    <strong>Demand Target Validation:</strong> {{ result.target_validation_message }}
+                </div>
+            </div>
+
+            <!-- Step 4 Recheck Summary Banner -->
+            {% if result.target_recheck_summary %}
+            <div class="target-recheck-banner">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" style="width: 18px; height: 18px; color: var(--accent); flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span><strong>Balancing Status:</strong> {{ result.target_recheck_summary }}</span>
+                </div>
+                {% if result.target_recheck_messages and result.target_recheck_messages|length > 1 %}
+                <details style="cursor: pointer; font-size: 12px; color: var(--text-muted);">
+                    <summary>View {{ result.target_recheck_messages|length }} attempts</summary>
+                    <ul style="margin-top: 8px; padding-left: 20px; color: var(--text-muted);">
+                        {% for msg in result.target_recheck_messages %}
+                        <li>{{ msg }}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="metrics-grid">
             {% if result.production_target %}
             <div class="metric-card">
@@ -1659,6 +1859,7 @@ LAYOUT_TEMPLATE = """
                     {% endif %}
                 </div>
             </div>
+            {% if result.pitch_time_source == "calculated" %}
             <div class="metric-card">
                 <div class="label">Tolerance<br><br></div>
                 <div class="value">
@@ -1676,6 +1877,7 @@ LAYOUT_TEMPLATE = """
                 <div class="label">LCL<br><br></div>
                 <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
             </div>
+            {% endif %}
         </div>
 
         <div class="table-section">
@@ -1695,8 +1897,10 @@ LAYOUT_TEMPLATE = """
                                 <th>Balancing<br>SAM</th>
                                 <th>M/P</th>
                                 <th>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</th>
+                                {% if result.pitch_time_source == "calculated" %}
                                 <th>UCL</th>
                                 <th>LCL</th>
+                                {% endif %}
                                 <th>Status</th>
                             </tr>
                         </thead>
@@ -1713,13 +1917,15 @@ LAYOUT_TEMPLATE = """
                                 <td>{{ row['Balancing SAM'] }}</td>
                                 <td>{{ row['M/P'] }}</td>
                                 <td>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}{{ row['Takt Time'] }}{% else %}{{ row['Pitch Time'] }}{% endif %}</td>
+                                {% if result.pitch_time_source == "calculated" %}
                                 <td>{{ row['UCL'] }}</td>
                                 <td>{{ row['LCL'] }}</td>
+                                {% endif %}
                                 <td>
                                     {% if 'OK' in row['Status'] %}
                                         <span class="status-badge status-ok">OK</span>
-                                    {% elif 'UCL' in row['Status'] %}
-                                        <span class="status-badge status-ucl">> UCL</span>
+                                    {% elif 'UCL' in row['Status'] or 'Target' in row['Status'] %}
+                                        <span class="status-badge status-ucl">{% if 'Target' in row['Status'] %}> Target{% else %}> UCL{% endif %}</span>
                                     {% else %}
                                         <span class="status-badge status-lcl">< LCL</span>
                                     {% endif %}
@@ -1999,6 +2205,53 @@ HTML_TEMPLATE = """
             padding: 16px 20px;
             margin-bottom: 24px;
             font-size: 14px;
+        }
+
+        /* Target Workflow Notifications */
+        .target-workflow-notice-container {
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .target-validation-banner {
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: var(--shadow);
+            transition: all var(--transition);
+        }
+
+        .target-validation-banner.success {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .target-validation-banner.warning {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid var(--warning);
+            color: var(--warning);
+        }
+
+        .target-recheck-banner {
+            padding: 12px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            box-shadow: var(--shadow);
+            flex-wrap: wrap;
         }
 
         /* Metrics Grid */
@@ -2669,18 +2922,18 @@ HTML_TEMPLATE = """
                 <div class="field">
                     <label>Time Method</label>
                     <select name="pitch_time_method" id="pitch_time_method" onchange="togglePitchTimeInput()">
-                        <option value="auto">Pitch time (Auto)</option>
-                        <option value="manual">Takt time (Manual)</option>
                         <option value="target">Takt time (By target)</option>
+                        <option value="manual">Takt time (Manual)</option>
+                        <option value="auto">Pitch time (Auto)</option>
                     </select>
                 </div>
                 <div class="field" id="pitch_time_field">
                     <label>Time Value</label>
                     <input type="number" name="pitch_time" id="pitch_time_input" value="" placeholder="Time in seconds" min="0" step="0.1">
                 </div>
-                <div class="field">
+                <div class="field" id="tolerance_field">
                     <label>Tolerance %</label>
-                    <input type="number" name="tolerance" value="15" min="0" max="100" step="1">
+                    <input type="number" name="tolerance" id="tolerance_input" value="15" min="0" max="100" step="1">
                 </div>
                 <div class="field" id="production_target_field">
                     <label>Customer Demand</label>
@@ -2731,6 +2984,48 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             
+            {% if result.pitch_time_source == "By Target" and result.target_validation_message %}
+            <div class="target-workflow-notice-container" id="targetWorkflowNoticeContainer">
+                <!-- Step 2 Validation Banner -->
+                <div class="target-validation-banner {% if result.demand_met %}success{% else %}warning{% endif %}" id="targetValidationBanner">
+                    {% if result.demand_met %}
+                    <svg xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {% else %}
+                    <svg xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    {% endif %}
+                    <div>
+                        <strong>Demand Target Validation:</strong> <span id="targetValidationText">{{ result.target_validation_message }}</span>
+                    </div>
+                </div>
+
+                <!-- Step 4 Recheck Summary Banner -->
+                {% if result.target_recheck_summary %}
+                <div class="target-recheck-banner" id="targetRecheckBanner">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" style="width: 18px; height: 18px; color: var(--accent); flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span><strong>Balancing Status:</strong> <span id="targetRecheckSummaryText">{{ result.target_recheck_summary }}</span></span>
+                    </div>
+                    {% if result.target_recheck_messages and result.target_recheck_messages|length > 1 %}
+                    <details style="cursor: pointer; font-size: 12px; color: var(--text-muted);">
+                        <summary>View {{ result.target_recheck_messages|length }} attempts</summary>
+                        <ul style="margin-top: 8px; padding-left: 20px; color: var(--text-muted);">
+                            {% for msg in result.target_recheck_messages %}
+                            <li>{{ msg }}</li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <!-- Constant Metrics (shown immediately) -->
             <div class="metrics-grid">
                 {% if result.production_target %}
@@ -2768,6 +3063,7 @@ HTML_TEMPLATE = """
                         {% endif %}
                     </div>
                 </div>
+                {% if result.pitch_time_source == "calculated" %}
                 <div class="metric-card">
                     <div class="label">Tolerance<br></div>
                     <div class="value">
@@ -2785,6 +3081,7 @@ HTML_TEMPLATE = """
                     <div class="label">LCL<br></div>
                     <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
                 </div>
+                {% endif %}
             </div>
 
             <!-- Show Balancing Results Button -->
@@ -2844,7 +3141,7 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ "%.2f"|format(result.target_before) }}<span class="unit"> units</span></span>
                                     </td>
                                     <td class="after-cell">
-                                        {% set arrow = '↑' if result.target_after > result.target_before else ('↓' if result.target_after < result.target_before else '') %}
+                                        {% set arrow = '↑' if (result.target_after|round(2)) > (result.target_before|round(2)) else ('↓' if (result.target_after|round(2)) < (result.target_before|round(2)) else '') %}
                                         <span class="metric-value">{{ "%.2f"|format(result.target_after) }}{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}<span class="unit"> units</span></span>
                                     </td>
                                 </tr>
@@ -2857,7 +3154,7 @@ HTML_TEMPLATE = """
                                     </td>
                                     <td class="after-cell">
                                         {% if result.labour_productivity_before is not none and result.labour_productivity_after is not none %}
-                                            {% set arrow = '↑' if result.labour_productivity_after > result.labour_productivity_before else ('↓' if result.labour_productivity_after < result.labour_productivity_before else '') %}
+                                            {% set arrow = '↑' if (result.labour_productivity_after|round(0)) > (result.labour_productivity_before|round(0)) else ('↓' if (result.labour_productivity_after|round(0)) < (result.labour_productivity_before|round(0)) else '') %}
                                             <span class="metric-value">{{ "%.0f"|format(result.labour_productivity_after) }}<span class="unit"> units/person</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                         {% else %}
                                             <span class="metric-value">{% if result.labour_productivity_after is not none %}{{ "%.0f"|format(result.labour_productivity_after) }}{% else %}N/A{% endif %}<span class="unit"> units/person</span></span>
@@ -2873,7 +3170,7 @@ HTML_TEMPLATE = """
                                     </td>
                                     <td class="after-cell">
                                         {% if result.before_metrics.line_efficiency and result.line_efficiency %}
-                                            {% set arrow = '↑' if result.line_efficiency > result.before_metrics.line_efficiency else ('↓' if result.line_efficiency < result.before_metrics.line_efficiency else '') %}
+                                            {% set arrow = '↑' if (result.line_efficiency|round(1)) > (result.before_metrics.line_efficiency|round(1)) else ('↓' if (result.line_efficiency|round(1)) < (result.before_metrics.line_efficiency|round(1)) else '') %}
                                             <span class="metric-value">{{ "%.1f"|format(result.line_efficiency) }}<span class="unit">%</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                         {% else %}
                                             <span class="metric-value">{% if result.line_efficiency %}{{ "%.1f"|format(result.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
@@ -2887,7 +3184,7 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balancing_rate) }}<span class="unit">%</span></span>
                                     </td>
                                     <td class="after-cell">
-                                        {% set arrow = '↑' if result.line_balancing_rate > result.before_metrics.balancing_rate else ('↓' if result.line_balancing_rate < result.before_metrics.balancing_rate else '') %}
+                                        {% set arrow = '↑' if (result.line_balancing_rate|round(1)) > (result.before_metrics.balancing_rate|round(1)) else ('↓' if (result.line_balancing_rate|round(1)) < (result.before_metrics.balancing_rate|round(1)) else '') %}
                                         <span class="metric-value">{{ "%.1f"|format(result.line_balancing_rate) }}<span class="unit">%</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                     </td>
                                 </tr>
@@ -2897,7 +3194,7 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ "%.1f"|format(result.before_metrics.balance_delay) }}<span class="unit">%</span></span>
                                     </td>
                                     <td class="after-cell">
-                                        {% set arrow = '↑' if result.balance_delay > result.before_metrics.balance_delay else ('↓' if result.balance_delay < result.before_metrics.balance_delay else '') %}
+                                        {% set arrow = '↑' if (result.balance_delay|round(1)) > (result.before_metrics.balance_delay|round(1)) else ('↓' if (result.balance_delay|round(1)) < (result.before_metrics.balance_delay|round(1)) else '') %}
                                         <span class="metric-value">{{ "%.1f"|format(result.balance_delay) }}<span class="unit">%</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                     </td>
                                 </tr>
@@ -2907,7 +3204,7 @@ HTML_TEMPLATE = """
                                         <span class="metric-value">{{ "%.2f"|format(result.before_metrics.smoothing_index) }}<span class="unit"> min</span></span>
                                     </td>
                                     <td class="after-cell">
-                                        {% set arrow = '↑' if result.smoothing_index > result.before_metrics.smoothing_index else ('↓' if result.smoothing_index < result.before_metrics.smoothing_index else '') %}
+                                        {% set arrow = '↑' if (result.smoothing_index|round(2)) > (result.before_metrics.smoothing_index|round(2)) else ('↓' if (result.smoothing_index|round(2)) < (result.before_metrics.smoothing_index|round(2)) else '') %}
                                         <span class="metric-value">{{ "%.2f"|format(result.smoothing_index) }}<span class="unit"> min</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                     </td>
                                 </tr>
@@ -2982,6 +3279,8 @@ HTML_TEMPLATE = """
             const efficiencyInput = document.getElementById('efficiency_input');
             const availableTimeField = document.getElementById('available_time_field');
             const availableTimeInput = document.getElementById('available_time_input');
+            const toleranceField = document.getElementById('tolerance_field');
+            const toleranceInput = document.getElementById('tolerance_input');
             
             if (method === 'manual') {
                 pitchTimeField.style.display = 'flex';
@@ -2989,6 +3288,10 @@ HTML_TEMPLATE = """
                 productionTargetField.style.display = 'none';
                 shiftTimeField.style.display = 'none';
                 shiftTimeInput.value = '';
+                // Hide tolerance field for manual method
+                toleranceField.style.display = 'none';
+                toleranceInput.required = false;
+                toleranceInput.value = '';
                 // Show efficiency and available time fields for manual method
                 efficiencyField.style.display = 'flex';
                 efficiencyInput.required = false;
@@ -3008,6 +3311,10 @@ HTML_TEMPLATE = """
                 if (!shiftTimeInput.value) {
                     shiftTimeInput.value = '420';
                 }
+                // Hide tolerance field for target method
+                toleranceField.style.display = 'none';
+                toleranceInput.required = false;
+                toleranceInput.value = '';
                 // Hide efficiency and available time fields for target method
                 efficiencyField.style.display = 'none';
                 efficiencyInput.required = false;
@@ -3022,6 +3329,13 @@ HTML_TEMPLATE = """
                 productionTargetField.style.display = 'none';
                 shiftTimeField.style.display = 'none';
                 shiftTimeInput.value = '';
+                // Show tolerance field for auto method
+                toleranceField.style.display = 'flex';
+                toleranceInput.required = false;
+                // Set default tolerance only if field is empty
+                if (!toleranceInput.value) {
+                    toleranceInput.value = '15';
+                }
                 // Show efficiency and available time fields for auto method
                 efficiencyField.style.display = 'flex';
                 efficiencyInput.required = false;
@@ -3254,57 +3568,65 @@ HTML_TEMPLATE = """
             // Determine pitch time label based on source
             const pitchTimeLabel = (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target") ? 'Takt Time' : 'Pitch Time';
             
+            // Build datasets array - always include basic time and pitch time line
+            const datasets = [
+                {
+                    label: 'Basic Time (SAM)',
+                    data: chartData.basic_times,
+                    backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                },
+                {
+                    label: pitchTimeLabel,
+                    data: Array(chartData.operations.length).fill(chartData.pitch_time),
+                    borderColor: 'rgb(34, 197, 94)',
+                    backgroundColor: 'rgb(34, 197, 94)',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    type: 'line',
+                    fill: false,
+                    hidden: false
+                }
+            ];
+            
+            // Only add UCL/LCL for auto method
+            if (chartData.pitch_time_source === "calculated") {
+                datasets.push(
+                    {
+                        label: 'UCL',
+                        data: Array(chartData.operations.length).fill(chartData.ucl),
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgb(239, 68, 68)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        type: 'line',
+                        fill: false,
+                        hidden: false
+                    },
+                    {
+                        label: 'LCL',
+                        data: Array(chartData.operations.length).fill(chartData.lcl),
+                        borderColor: 'rgb(249, 115, 22)',
+                        backgroundColor: 'rgb(249, 115, 22)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        type: 'line',
+                        fill: false,
+                        hidden: false
+                    }
+                );
+            }
+            
             window.beforeBalanceChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: chartData.operations,
-                    datasets: [
-                        {
-                            label: 'Basic Time (SAM)',
-                            data: chartData.basic_times,
-                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
-                            borderColor: 'rgba(59, 130, 246, 1)',
-                            borderWidth: 1,
-                            borderRadius: 4
-                        },
-                        // Add reference lines as datasets for legend
-                        {
-                            label: 'UCL',
-                            data: Array(chartData.operations.length).fill(chartData.ucl),
-                            borderColor: 'rgb(239, 68, 68)',
-                            backgroundColor: 'rgb(239, 68, 68)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            type: 'line',
-                            fill: false,
-                            hidden: false
-                        },
-                        {
-                            label: pitchTimeLabel,
-                            data: Array(chartData.operations.length).fill(chartData.pitch_time),
-                            borderColor: 'rgb(34, 197, 94)',
-                            backgroundColor: 'rgb(34, 197, 94)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            type: 'line',
-                            fill: false,
-                            hidden: false
-                        },
-                        {
-                            label: 'LCL',
-                            data: Array(chartData.operations.length).fill(chartData.lcl),
-                            borderColor: 'rgb(249, 115, 22)',
-                            backgroundColor: 'rgb(249, 115, 22)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            type: 'line',
-                            fill: false,
-                            hidden: false
-                        }
-                    ]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -3421,57 +3743,65 @@ HTML_TEMPLATE = """
             // Determine pitch time label based on source
             const pitchTimeLabel = (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target") ? 'Takt Time' : 'Pitch Time';
             
+            // Build datasets array - always include balancing SAM and pitch time line
+            const datasets = [
+                {
+                    label: 'Balancing SAM',
+                    data: chartData.balancing_sam,
+                    backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                },
+                {
+                    label: pitchTimeLabel,
+                    data: Array(chartData.workstations.length).fill(chartData.pitch_time),
+                    borderColor: 'rgb(34, 197, 94)',
+                    backgroundColor: 'rgb(34, 197, 94)',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    type: 'line',
+                    fill: false,
+                    hidden: false
+                }
+            ];
+            
+            // Only add UCL/LCL for auto method
+            if (chartData.pitch_time_source === "calculated") {
+                datasets.push(
+                    {
+                        label: 'UCL',
+                        data: Array(chartData.workstations.length).fill(chartData.ucl),
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgb(239, 68, 68)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        type: 'line',
+                        fill: false,
+                        hidden: false
+                    },
+                    {
+                        label: 'LCL',
+                        data: Array(chartData.workstations.length).fill(chartData.lcl),
+                        borderColor: 'rgb(249, 115, 22)',
+                        backgroundColor: 'rgb(249, 115, 22)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        type: 'line',
+                        fill: false,
+                        hidden: false
+                    }
+                );
+            }
+            
             window.balanceChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: chartData.workstations,
-                    datasets: [
-                        {
-                            label: 'Balancing SAM',
-                            data: chartData.balancing_sam,
-                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
-                            borderColor: 'rgba(59, 130, 246, 1)',
-                            borderWidth: 1,
-                            borderRadius: 4
-                        },
-                        // Add reference lines as datasets for legend
-                        {
-                            label: 'UCL',
-                            data: Array(chartData.workstations.length).fill(chartData.ucl),
-                            borderColor: 'rgb(239, 68, 68)',
-                            backgroundColor: 'rgb(239, 68, 68)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            type: 'line',
-                            fill: false,
-                            hidden: false
-                        },
-                        {
-                            label: pitchTimeLabel,
-                            data: Array(chartData.workstations.length).fill(chartData.pitch_time),
-                            borderColor: 'rgb(34, 197, 94)',
-                            backgroundColor: 'rgb(34, 197, 94)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            type: 'line',
-                            fill: false,
-                            hidden: false
-                        },
-                        {
-                            label: 'LCL',
-                            data: Array(chartData.workstations.length).fill(chartData.lcl),
-                            borderColor: 'rgb(249, 115, 22)',
-                            backgroundColor: 'rgb(249, 115, 22)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            type: 'line',
-                            fill: false,
-                            hidden: false
-                        }
-                    ]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,

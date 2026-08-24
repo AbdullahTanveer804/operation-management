@@ -23,34 +23,33 @@ else:
 DEFAULT_TOLERANCE = 0.15  # 15%, hard coded as per requirements
 
 
-def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float, tolerance: float = DEFAULT_TOLERANCE) -> float:
+def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float) -> float:
     """
     Calculate Takt Time from production target and shift time.
     
     Formula:
-    - UCL = (Production Target / Shift time) * 60
-    - Takt Time = UCL - (UCL * tolerance)
+    - Takt Time = (Shift time / Production Target) - result is in minutes
+    - Convert to seconds for internal use (multiply by 60)
     
     Args:
         production_target: Production target (number of units)
         shift_time_minutes: Shift time in minutes
-        tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function.
     
     Returns:
-        Calculated Takt Time
+        Calculated takt time in seconds
     """
     if production_target <= 0:
         raise ValueError("Production target must be a positive number.")
     if shift_time_minutes <= 0:
         raise ValueError("Shift time must be a positive number.")
     
-    # Calculate UCL
-    ucl = (production_target / shift_time_minutes) * 60
+    # Calculate takt time in minutes
+    takt_time_minutes = shift_time_minutes / production_target
     
-    # Calculate Takt Time = UCL - (UCL * tolerance)
-    takt_time = ucl - (ucl * tolerance)
+    # Convert to seconds for internal use
+    takt_time_seconds = takt_time_minutes * 60
     
-    return takt_time
+    return takt_time_seconds
 
 
 def calculate_before_pitch_time(operations: List[Operation]) -> float:
@@ -313,7 +312,7 @@ def calculate_all_before_metrics(
         operations: List of Operation objects from input file
         production_target: Optional production target for line efficiency calculation and takt time calculation
         shift_time_minutes: Optional shift time in minutes for line efficiency calculation and takt time calculation
-        tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function.
+        tolerance: Tolerance percentage as decimal (default 0.15 for 15%). Note: Input from frontend is expected as percentage (e.g., 15) and converted to decimal (e.g., 0.15) before calling this function. Only used for auto method.
         pitch_time_method: Method for calculating time ("auto", "manual", "target")
         manual_pitch_time: Optional manual takt time (required when method is "manual")
         efficiency_percentage: Optional efficiency percentage for Target calculation (0-100)
@@ -322,6 +321,10 @@ def calculate_all_before_metrics(
     Returns:
         Dictionary containing all before-balancing metrics
     """
+    # Use default tolerance for auto method if not provided
+    if pitch_time_method == "auto" and tolerance is None:
+        tolerance = DEFAULT_TOLERANCE
+    
     # Calculate time based on method
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
@@ -331,22 +334,27 @@ def calculate_all_before_metrics(
         # Clear target-related parameters for manual method
         production_target = None
         shift_time_minutes = None
+        # No tolerance bands for manual method
+        ucl = None
+        lcl = None
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError("Production target must be provided and positive when method is 'target'.")
         if shift_time_minutes is None or shift_time_minutes <= 0:
             raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes, tolerance)
+        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
         pitch_time_source = "By Target"
+        # No tolerance bands for target method
+        ucl = None
+        lcl = None
     else:  # auto (default)
         pitch_time = calculate_before_pitch_time(operations)
         pitch_time_source = "calculated"
         # Clear target-related parameters for auto method
         production_target = None
         shift_time_minutes = None
-    
-    # Calculate tolerance bands
-    ucl, lcl = calculate_before_tolerance_bands(pitch_time, tolerance)
+        # Calculate tolerance bands for auto method
+        ucl, lcl = calculate_before_tolerance_bands(pitch_time, tolerance)
     
     # Calculate basic metrics
     num_operations = calculate_before_num_operations(operations)
@@ -379,7 +387,8 @@ def calculate_all_before_metrics(
     if target_for_productivity is not None and total_manpower > 0:
         labour_productivity = target_for_productivity / total_manpower
     
-    return {
+    # Build return dictionary
+    result = {
         "pitch_time": pitch_time,
         "pitch_time_source": pitch_time_source,
         "ucl": ucl,
@@ -392,7 +401,12 @@ def calculate_all_before_metrics(
         "line_efficiency": line_efficiency,
         "balance_delay": balance_delay,
         "smoothing_index": smoothing_index,
-        "tolerance": tolerance,
         "target": target,
         "labour_productivity": labour_productivity,
     }
+    
+    # Only include tolerance for auto method
+    if pitch_time_source == "calculated":
+        result["tolerance"] = tolerance
+    
+    return result
