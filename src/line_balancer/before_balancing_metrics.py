@@ -325,6 +325,9 @@ def calculate_all_before_metrics(
     if pitch_time_method == "auto" and tolerance is None:
         tolerance = DEFAULT_TOLERANCE
     
+    # Initialize auto_pitch_time for By Target method
+    auto_pitch_time = None
+    
     # Calculate time based on method
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
@@ -342,11 +345,17 @@ def calculate_all_before_metrics(
             raise ValueError("Production target must be provided and positive when method is 'target'.")
         if shift_time_minutes is None or shift_time_minutes <= 0:
             raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        pitch_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+        takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+        pitch_time = takt_time
         pitch_time_source = "By Target"
-        # No tolerance bands for target method
-        ucl = None
-        lcl = None
+        # Calculate auto pitch time and tolerance bands for display purposes
+        auto_pitch_time = calculate_before_pitch_time(operations)
+        if tolerance is None:
+            tolerance = DEFAULT_TOLERANCE
+        auto_ucl, auto_lcl = calculate_before_tolerance_bands(auto_pitch_time, tolerance)
+        # Use auto-computed values for display
+        ucl = auto_ucl
+        lcl = auto_lcl
     else:  # auto (default)
         pitch_time = calculate_before_pitch_time(operations)
         pitch_time_source = "calculated"
@@ -405,8 +414,12 @@ def calculate_all_before_metrics(
         "labour_productivity": labour_productivity,
     }
     
-    # Only include tolerance for auto method
-    if pitch_time_source == "calculated":
+    # Include tolerance for auto and By Target methods
+    if pitch_time_source == "calculated" or pitch_time_source == "By Target":
         result["tolerance"] = tolerance
+    
+    # For By Target method, also include auto-computed values for display
+    if pitch_time_source == "By Target":
+        result["auto_pitch_time"] = auto_pitch_time
     
     return result

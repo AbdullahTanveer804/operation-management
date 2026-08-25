@@ -44,8 +44,12 @@ def test_workflow_target_workflow():
     takt_time = res_target['pitch_time']
     assert takt_time == pytest.approx(28.8)
     assert res_target['pitch_time_source'] == "By Target"
-    assert res_target['ucl'] is None
-    assert res_target['lcl'] is None
+    # After Fix 1: ucl and lcl should now be populated with auto-computed values
+    assert res_target['ucl'] is not None
+    assert res_target['lcl'] is not None
+    # Verify these are the auto-computed values (around 32.1 and 23.8 based on the sample data)
+    assert res_target['ucl'] == pytest.approx(32.1, rel=0.01)  # auto_pitch_time * 1.15
+    assert res_target['lcl'] == pytest.approx(23.8, rel=0.01)  # auto_pitch_time * 0.85
     assert 'demand_met' in res_target
     assert 'target_validation_message' in res_target
     assert 'target_recheck_messages' in res_target

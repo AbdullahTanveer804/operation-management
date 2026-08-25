@@ -80,9 +80,7 @@ def run_workflow(
         takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
         pitch_time = takt_time
         pitch_time_source = "By Target"
-        ucl = None
-        lcl = None
-
+        
         # Step 2 — Validate BEFORE balancing
         max_sam = max(op.basic_time for op in sorted_operations) if sorted_operations else 0.0
         if max_sam > takt_time:
@@ -94,8 +92,14 @@ def run_workflow(
 
         # Step 3 — Balance the line using Pitch Time Auto logic
         auto_pitch_time = calculate_pitch_time(sorted_operations)
-        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance if tolerance is not None else 0.15)
-        workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl)
+        if tolerance is None:
+            tolerance = 0.15
+        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance)
+        # Use auto-computed values for display and status determination
+        ucl = auto_ucl
+        lcl = auto_lcl
+        # Use strict=True to remove 0.5s relaxation for By Target workflow
+        workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl, strict=True)
 
         # Step 4 — Recheck balanced result against Takt Time, loop until it passes or safety cap is hit
         attempt = 1
@@ -110,7 +114,7 @@ def run_workflow(
                 break
             else:
                 target_recheck_messages.append(f"Balancing not OK (attempt {attempt}) — re-balancing required.")
-                workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl)
+                workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl, strict=True)
                 attempt += 1
 
         if attempt > MAX_ATTEMPTS:
@@ -143,12 +147,16 @@ def run_workflow(
 
     # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
-    report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time, pitch_time_source=pitch_time_source)
+    # For By Target method, use auto_pitch_time for display in the table alongside takt_time
+    display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
+    report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=display_pitch_time, pitch_time_source=pitch_time_source)
 
-    print_summary(pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops, sorted_operations, balance_delay, line_efficiency, pitch_time_source, smoothing_index, tolerance, production_target, shift_time_minutes)
+    # For By Target method, pass auto_pitch_time for display
+    display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
+    print_summary(display_pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops, sorted_operations, balance_delay, line_efficiency, pitch_time_source, smoothing_index, tolerance, production_target, shift_time_minutes)
 
     if export_path:
-        export_report(workstations, export_path, pitch_time=pitch_time, ucl=ucl, lcl=lcl, pitch_time_source=pitch_time_source)
+        export_report(workstations, export_path, pitch_time=display_pitch_time, ucl=ucl, lcl=lcl, pitch_time_source=pitch_time_source)
         print(f"\nReport exported to {export_path}")
 
     return {

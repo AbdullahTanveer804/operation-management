@@ -105,9 +105,7 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
         pitch_time = takt_time
         pitch_time_source = "By Target"
-        ucl = None
-        lcl = None
-
+        
         # Step 2 — Validate BEFORE balancing
         max_sam = max(op.basic_time for op in sorted_ops) if sorted_ops else 0.0
         if max_sam > takt_time:
@@ -119,8 +117,14 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
 
         # Step 3 — Balance the line using Pitch Time Auto logic
         auto_pitch_time = calculate_pitch_time(sorted_ops)
-        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance if tolerance is not None else 0.15)
-        workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl)
+        if tolerance is None:
+            tolerance = 0.15
+        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance)
+        # Use auto-computed values for display and status determination
+        ucl = auto_ucl
+        lcl = auto_lcl
+        # Use strict=True to remove 0.5s relaxation for By Target workflow
+        workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl, strict=True)
 
         # Step 4 — Recheck balanced result against Takt Time, loop until it passes or safety cap is hit
         attempt = 1
@@ -135,7 +139,7 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
                 break
             else:
                 target_recheck_messages.append(f"Balancing not OK (attempt {attempt}) — re-balancing required.")
-                workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl)
+                workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl, strict=True)
                 attempt += 1
 
         if attempt > MAX_ATTEMPTS:
@@ -207,7 +211,9 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         labour_productivity_after = target_for_productivity_after / total_manpower_after
     
     # Step 5: Build report
-    report_df = build_report_dataframe(workstations, ucl, lcl, pitch_time, pitch_time_source)
+    # For By Target method, use auto_pitch_time for display in the table alongside takt_time
+    display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
+    report_df = build_report_dataframe(workstations, ucl, lcl, display_pitch_time, pitch_time_source)
     
     # Build return dictionary
     result = {
@@ -239,14 +245,20 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         "target_recheck_summary": target_recheck_summary,
     }
     
-    # Only include tolerance for auto method
-    if pitch_time_source == "calculated":
+    # Include tolerance for auto and By Target methods
+    if pitch_time_source == "calculated" or pitch_time_source == "By Target":
         result["tolerance"] = tolerance
+    
+    # For By Target method, also include auto-computed values for display
+    if pitch_time_method == "target":
+        result["auto_pitch_time"] = auto_pitch_time
+        result["auto_ucl"] = auto_ucl
+        result["auto_lcl"] = auto_lcl
     
     return result
 
 
-def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None) -> io.BytesIO:
+def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None, auto_pitch_time=None) -> io.BytesIO:
     """
     Generate a bar chart image using matplotlib that matches the client-side Chart.js styling.
     
@@ -257,6 +269,7 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
         lcl: Lower control limit
         pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
         y_max: Optional Y-axis maximum for shared scaling
+        auto_pitch_time: Auto-calculated pitch time (for By Target method)
     
     Returns:
         BytesIO object containing the PNG image
@@ -275,10 +288,15 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
         balancing_sam.append(ws.balancing_sam)
     
     # Determine pitch time label based on source
-    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+    if pitch_time_source == "manual":
         pitch_time_label = "Takt Time"
+    elif pitch_time_source == "By Target":
+        pitch_time_label = "Pitch Time (Auto)"
     else:
         pitch_time_label = "Pitch Time"
+    
+    # For By Target method, use auto_pitch_time for display
+    display_pitch_time = auto_pitch_time if pitch_time_source == "By Target" and auto_pitch_time is not None else pitch_time
     
     # Create figure with appropriate size
     fig, ax = plt.subplots(figsize=(18, 9))
@@ -292,12 +310,16 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
                   label='Balancing SAM')
     
     # Add reference lines without labels (labels will be in legend)
-    # Only show UCL/LCL for auto method
-    if pitch_time_source == "calculated":
+    # Show UCL/LCL for auto and By Target methods
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
         ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
         ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
-    # Always show pitch time/takt time line
-    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+    # Show pitch time/takt time line for manual method only
+    if pitch_time_source == "manual":
+        ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+    # Show auto pitch time line for auto and By Target methods
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and auto_pitch_time is not None):
+        ax.axhline(y=display_pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
     
     # Set Y-axis maximum if provided
     if y_max is not None:
@@ -326,14 +348,20 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     from matplotlib.lines import Line2D
     legend_elements = [
         Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Balancing SAM'),
-        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label)
     ]
     
-    # Only add UCL/LCL to legend for auto method
-    if pitch_time_source == "calculated":
+    # Add pitch time/takt time line for manual method
+    if pitch_time_source == "manual":
+        legend_elements.append(
+            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s')
+        )
+    
+    # Add UCL/LCL and pitch time line for auto and By Target methods
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
         legend_elements.extend([
-            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
-            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s'),
+            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label=f'UCL {ucl:.1f}s'),
+            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label=f'LCL {lcl:.1f}s')
         ])
     
     ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
@@ -366,7 +394,7 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     return img_buffer
 
 
-def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None) -> io.BytesIO:
+def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None, auto_pitch_time=None) -> io.BytesIO:
     """
     Generate a before balancing bar chart image using matplotlib.
     
@@ -377,6 +405,7 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
         lcl: Lower control limit
         pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
         y_max: Optional Y-axis maximum for shared scaling
+        auto_pitch_time: Auto-calculated pitch time (for By Target method)
     
     Returns:
         BytesIO object containing the PNG image
@@ -389,10 +418,15 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
     basic_times = [op.basic_time for op in operations]
     
     # Determine pitch time label based on source
-    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+    if pitch_time_source == "manual":
         pitch_time_label = "Takt Time"
+    elif pitch_time_source == "By Target":
+        pitch_time_label = "Pitch Time (Auto)"
     else:
         pitch_time_label = "Pitch Time"
+    
+    # For By Target method, use auto_pitch_time for display
+    display_pitch_time = auto_pitch_time if pitch_time_source == "By Target" and auto_pitch_time is not None else pitch_time
     
     # Create figure with appropriate size
     fig, ax = plt.subplots(figsize=(18, 9))
@@ -406,12 +440,16 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
                   label='Basic Time (SAM)')
     
     # Add reference lines without labels (labels will be in legend)
-    # Only show UCL/LCL for auto method
-    if pitch_time_source == "calculated":
+    # Show UCL/LCL for auto and By Target methods
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
         ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
         ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
-    # Always show pitch time/takt time line
-    ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+    # Show pitch time/takt time line for manual method only
+    if pitch_time_source == "manual":
+        ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+    # Show auto pitch time line for auto and By Target methods
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and auto_pitch_time is not None):
+        ax.axhline(y=display_pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
     
     # Set Y-axis maximum if provided
     if y_max is not None:
@@ -440,14 +478,20 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
     from matplotlib.lines import Line2D
     legend_elements = [
         Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Basic Time (SAM)'),
-        Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=pitch_time_label)
     ]
     
-    # Only add UCL/LCL to legend for auto method
-    if pitch_time_source == "calculated":
+    # Add pitch time/takt time line for manual method
+    if pitch_time_source == "manual":
+        legend_elements.append(
+            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s')
+        )
+    
+    # Add UCL/LCL and pitch time line for auto and By Target methods
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
         legend_elements.extend([
-            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label='UCL'),
-            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label='LCL')
+            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s'),
+            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label=f'UCL {ucl:.1f}s'),
+            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label=f'LCL {lcl:.1f}s')
         ])
     
     ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
@@ -597,6 +641,8 @@ def index():
                                         row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
                                     elif "Takt Time" in row and row["Takt Time"]:
                                         row["Takt Time"] = f"{row['Takt Time']:.1f}"
+                                    elif "Pitch Time (Auto)" in row and row["Pitch Time (Auto)"]:
+                                        row["Pitch Time (Auto)"] = f"{row['Pitch Time (Auto)']:.1f}"
                                     if row.get("UCL"):
                                         row["UCL"] = f"{row['UCL']:.1f}"
                                     if row.get("LCL"):
@@ -649,7 +695,8 @@ def export(format: str, session_id: str):
             calc["ucl"],
             calc["lcl"],
             calc.get("pitch_time_source", "calculated"),
-            shared_y_max
+            shared_y_max,
+            calc.get("auto_pitch_time")
         )
         
         # Generate after chart image
@@ -659,7 +706,8 @@ def export(format: str, session_id: str):
             calc["ucl"],
             calc["lcl"],
             calc.get("pitch_time_source", "calculated"),
-            shared_y_max
+            shared_y_max,
+            calc.get("auto_pitch_time")
         )
         
         # Create Excel workbook with openpyxl
@@ -765,24 +813,39 @@ def export(format: str, session_id: str):
         if pitch_time_source_tag == "manual":
             source_display = "(Manual)"
             time_display_name = "Takt Time"
+            display_time = calc['pitch_time']
         elif pitch_time_source_tag == "By Target":
             source_display = "(By Target)"
             time_display_name = "Takt Time"
+            display_time = calc['pitch_time']
         else:  # "calculated" or any other value
             source_display = "(Auto)"
             time_display_name = "Pitch Time"
+            display_time = calc['pitch_time']
         
         # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
-        if calc['pitch_time'] == int(calc['pitch_time']):
-            formatted_pitch = int(calc['pitch_time'])
+        if display_time == int(display_time):
+            formatted_pitch = int(display_time)
         else:
-            truncated = int(calc['pitch_time'] * 10) / 10
+            truncated = int(display_time * 10) / 10
             formatted_pitch = int(truncated) if truncated == int(truncated) else truncated
         worksheet[f'A{current_row}'] = f"{time_display_name}: {formatted_pitch}s {source_display}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
         
-        # 8. Tolerance (only for auto method)
+        # 7.5. Pitch Time (Auto) for By Target method
+        if pitch_time_source_tag == "By Target" and calc.get('auto_pitch_time') is not None:
+            auto_pitch = calc['auto_pitch_time']
+            if auto_pitch == int(auto_pitch):
+                formatted_auto_pitch = int(auto_pitch)
+            else:
+                truncated = int(auto_pitch * 10) / 10
+                formatted_auto_pitch = int(truncated) if truncated == int(truncated) else truncated
+            worksheet[f'A{current_row}'] = f"Pitch Time (Auto): {formatted_auto_pitch}s"
+            worksheet[f'A{current_row}'].font = Font(bold=True)
+            current_row += 1
+        
+        # 8. Tolerance (for auto and By Target methods)
         tolerance_value = calc.get('tolerance')
         if tolerance_value is not None:
             tolerance_percentage = tolerance_value * 100
@@ -800,7 +863,7 @@ def export(format: str, session_id: str):
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
         
-        # 9. UCL (only for auto method)
+        # 9. UCL (for auto and By Target methods)
         if calc.get('ucl') is not None:
             # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
             if calc['ucl'] == int(calc['ucl']):
@@ -812,7 +875,7 @@ def export(format: str, session_id: str):
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
 
-        # 10. LCL (only for auto method)
+        # 10. LCL (for auto and By Target methods)
         if calc.get('lcl') is not None:
             # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
             if calc['lcl'] == int(calc['lcl']):
@@ -897,7 +960,7 @@ def export(format: str, session_id: str):
                 if isinstance(value, (int, float)):
                     header_name = headers[col_idx - 1]
                     # For specified columns, truncate to 1 decimal place (not rounding) and remove trailing zeros
-                    if header_name in ['Combined Basic Time', 'Balancing SAM', 'Pitch Time', 'Takt Time', 'UCL', 'LCL']:
+                    if header_name in ['Combined Basic Time', 'Balancing SAM', 'Pitch Time', 'Takt Time', 'Pitch Time (Auto)', 'UCL', 'LCL']:
                         if value == int(value):
                             cell.value = int(value)
                             cell.number_format = '0'  # No decimal for whole numbers
@@ -1117,46 +1180,62 @@ def get_chart_data(session_id: str):
     print(f"API request for session: {session_id}")
     print(f"Available sessions: {list(SESSIONS.keys())}")
     
-    calc = get_calculation(session_id)
-    if not calc:
-        return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
-    
-    # Extract workstation data
-    workstations = calc["workstations"]
-    pitch_time = calc["pitch_time"]
-    ucl = calc["ucl"]
-    lcl = calc["lcl"]
-    
-    # Prepare data for chart with operation names for each workstation
-    workstation_names = []
-    for ws in workstations:
-        # Join operation names with " + " for each workstation
-        op_names = " + ".join(op.name for op in ws.operations)
-        workstation_names.append(op_names)
-    
-    chart_data = {
-        "workstations": workstation_names,
-        "balancing_sam": [ws.balancing_sam for ws in workstations],
-        "pitch_time": pitch_time,
-        "pitch_time_source": calc.get("pitch_time_source", "calculated"),
-        "line_balancing_rate": calc["line_balancing_rate"],
-        "balance_delay": calc["balance_delay"],
-        "smoothing_index": calc["smoothing_index"],
-        "total_basic_time": calc["total_basic_time"],
-        "production_target": calc.get("production_target"),
-        "shift_time_minutes": calc.get("shift_time_minutes"),
-    }
-    
-    # Only include UCL/LCL and tolerance for auto method
-    if calc.get("pitch_time_source") == "calculated":
-        chart_data["ucl"] = ucl
-        chart_data["lcl"] = lcl
-        chart_data["tolerance"] = calc.get("tolerance", 0.15) * 100  # Convert to percentage for display
-    
-    if calc.get("line_efficiency") is not None:
-        chart_data["line_efficiency"] = calc["line_efficiency"]
-    
-    return jsonify(chart_data)
+    try:
+        calc = get_calculation(session_id)
+        if not calc:
+            return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
+        
+        # Extract workstation data
+        workstations = calc["workstations"]
+        pitch_time = calc["pitch_time"]
+        ucl = calc["ucl"]
+        lcl = calc["lcl"]
+        
+        # Prepare data for chart with operation names for each workstation
+        workstation_names = []
+        for ws in workstations:
+            # Join operation names with " + " for each workstation
+            op_names = " + ".join(op.name for op in ws.operations)
+            workstation_names.append(op_names)
+        
+        chart_data = {
+            "workstations": workstation_names,
+            "balancing_sam": [ws.balancing_sam for ws in workstations],
+            "pitch_time": pitch_time,
+            "pitch_time_source": calc.get("pitch_time_source", "calculated"),
+            "line_balancing_rate": calc["line_balancing_rate"],
+            "balance_delay": calc["balance_delay"],
+            "smoothing_index": calc["smoothing_index"],
+            "total_basic_time": calc["total_basic_time"],
+            "production_target": calc.get("production_target"),
+            "shift_time_minutes": calc.get("shift_time_minutes"),
+        }
+        
+        # Only include UCL/LCL and tolerance for auto method
+        if calc.get("pitch_time_source") == "calculated":
+            chart_data["ucl"] = ucl
+            chart_data["lcl"] = lcl
+            tolerance = calc.get("tolerance", 0.15)
+            if tolerance is not None:
+                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+        elif calc.get("pitch_time_source") == "By Target":
+            # For By Target method, include auto-computed values
+            chart_data["ucl"] = ucl
+            chart_data["lcl"] = lcl
+            tolerance = calc.get("tolerance", 0.15)
+            if tolerance is not None:
+                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+            chart_data["auto_pitch_time"] = calc.get("auto_pitch_time")
+        
+        if calc.get("line_efficiency") is not None:
+            chart_data["line_efficiency"] = calc["line_efficiency"]
+        
+        return jsonify(chart_data)
+    except Exception as e:
+        print(f"Error in get_chart_data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to load chart data: {str(e)}"}), 500
 
 
 @app.route("/api/before-chart-data/<session_id>")
@@ -1164,39 +1243,55 @@ def get_before_chart_data(session_id: str):
     """Get before balancing chart data for the home view."""
     print(f"API request for before chart session: {session_id}")
     
-    calc = get_calculation(session_id)
-    if not calc:
-        return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
-    
-    # Extract before balancing metrics
-    before_metrics = calc["before_metrics"]
-    operations = calc["sorted_operations"]
-    
-    # Prepare data for chart with operation names and basic times
-    operation_names = [op.name for op in operations]
-    basic_times = [op.basic_time for op in operations]
-    
-    chart_data = {
-        "operations": operation_names,
-        "basic_times": basic_times,
-        "pitch_time": before_metrics["pitch_time"],
-        "pitch_time_source": before_metrics.get("pitch_time_source", "calculated"),
-        "balancing_rate": before_metrics["balancing_rate"],
-        "balance_delay": before_metrics["balance_delay"],
-        "smoothing_index": before_metrics["smoothing_index"],
-        "total_basic_time": before_metrics["total_basic_time"],
-    }
-    
-    # Only include UCL/LCL and tolerance for auto method
-    if before_metrics.get("pitch_time_source") == "calculated":
-        chart_data["ucl"] = before_metrics["ucl"]
-        chart_data["lcl"] = before_metrics["lcl"]
-        chart_data["tolerance"] = before_metrics["tolerance"] * 100  # Convert to percentage for display
-    
-    if before_metrics.get("line_efficiency") is not None:
-        chart_data["line_efficiency"] = before_metrics["line_efficiency"]
-    
-    return jsonify(chart_data)
+    try:
+        calc = get_calculation(session_id)
+        if not calc:
+            return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
+        
+        # Extract before balancing metrics
+        before_metrics = calc["before_metrics"]
+        operations = calc["sorted_operations"]
+        
+        # Prepare data for chart with operation names and basic times
+        operation_names = [op.name for op in operations]
+        basic_times = [op.basic_time for op in operations]
+        
+        chart_data = {
+            "operations": operation_names,
+            "basic_times": basic_times,
+            "pitch_time": before_metrics["pitch_time"],
+            "pitch_time_source": before_metrics.get("pitch_time_source", "calculated"),
+            "balancing_rate": before_metrics["balancing_rate"],
+            "balance_delay": before_metrics["balance_delay"],
+            "smoothing_index": before_metrics["smoothing_index"],
+            "total_basic_time": before_metrics["total_basic_time"],
+        }
+        
+        # Only include UCL/LCL and tolerance for auto method
+        if before_metrics.get("pitch_time_source") == "calculated":
+            chart_data["ucl"] = before_metrics["ucl"]
+            chart_data["lcl"] = before_metrics["lcl"]
+            tolerance = before_metrics.get("tolerance", 0.15)
+            if tolerance is not None:
+                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+        elif before_metrics.get("pitch_time_source") == "By Target":
+            # For By Target method, include auto-computed values
+            chart_data["ucl"] = before_metrics["ucl"]
+            chart_data["lcl"] = before_metrics["lcl"]
+            tolerance = before_metrics.get("tolerance", 0.15)
+            if tolerance is not None:
+                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+            chart_data["auto_pitch_time"] = before_metrics.get("auto_pitch_time")
+        
+        if before_metrics.get("line_efficiency") is not None:
+            chart_data["line_efficiency"] = before_metrics["line_efficiency"]
+        
+        return jsonify(chart_data)
+    except Exception as e:
+        print(f"Error in get_before_chart_data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to load before chart data: {str(e)}"}), 500
 
 
 @app.route("/layout")
@@ -1206,25 +1301,34 @@ def layout(session_id: str = None):
     calc = None
     rows = []
     if session_id:
-        calc = get_calculation(session_id)
-        if calc:
-            # Convert dataframe to list of dicts for template
-            df = calc["report_df"]
-            rows = df.to_dict("records")
-            
-            # Format numeric values
-            for row in rows:
-                row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
-                row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
-                # Format new columns if they are numeric - handle dynamic column name
-                if "Pitch Time" in row and row["Pitch Time"]:
-                    row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
-                elif "Takt Time" in row and row["Takt Time"]:
-                    row["Takt Time"] = f"{row['Takt Time']:.1f}"
-                if row.get("UCL"):
-                    row["UCL"] = f"{row['UCL']:.1f}"
-                if row.get("LCL"):
-                    row["LCL"] = f"{row['LCL']:.1f}"
+        try:
+            calc = get_calculation(session_id)
+            if calc:
+                # Convert dataframe to list of dicts for template
+                df = calc["report_df"]
+                rows = df.to_dict("records")
+                
+                # Format numeric values
+                for row in rows:
+                    row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
+                    row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
+                    # Format new columns if they are numeric - handle dynamic column name
+                    if "Pitch Time" in row and row["Pitch Time"]:
+                        row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
+                    elif "Takt Time" in row and row["Takt Time"]:
+                        row["Takt Time"] = f"{row['Takt Time']:.1f}"
+                    elif "Pitch Time (Auto)" in row and row["Pitch Time (Auto)"]:
+                        row["Pitch Time (Auto)"] = f"{row['Pitch Time (Auto)']:.1f}"
+                    if row.get("UCL"):
+                        row["UCL"] = f"{row['UCL']:.1f}"
+                    if row.get("LCL"):
+                        row["LCL"] = f"{row['LCL']:.1f}"
+        except Exception as e:
+            print(f"Error in layout route: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            calc = None
+            rows = []
     
     return render_template_string(LAYOUT_TEMPLATE, session_id=session_id, has_data=calc is not None, result=calc, rows=rows)
 
@@ -1545,7 +1649,7 @@ LAYOUT_TEMPLATE = """
         th:nth-child(7) { width: 11%; } /* Combined Basic Time */
         th:nth-child(8) { width: 9%; }  /* Balancing SAM */
         th:nth-child(9) { width: 6%; }  /* M/P */
-        th:nth-child(10) { width: 8%; } /* Pitch Time */
+        th:nth-child(10) { width: 10%; } /* Pitch Time / Pitch Time (Auto) */
         th:nth-child(11) { width: 8%; } /* UCL */
         th:nth-child(12) { width: 8%; } /* LCL */
         th:nth-child(13) { width: 10%; } /* Status */
@@ -1847,7 +1951,7 @@ LAYOUT_TEMPLATE = """
                 <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
             </div>
             <div class="metric-card">
-                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time<br><br>{% else %}Pitch Time<br><br>{% endif %}</div>
+                <div class="label">{% if result.pitch_time_source == "manual" %}Takt Time<br><br>{% elif result.pitch_time_source == "By Target" %}Takt Time<br><br>{% else %}Pitch Time<br><br>{% endif %}</div>
                 <div class="value">
                     {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
                     {% if result.pitch_time_source == "manual" %}
@@ -1859,7 +1963,13 @@ LAYOUT_TEMPLATE = """
                     {% endif %}
                 </div>
             </div>
-            {% if result.pitch_time_source == "calculated" %}
+            {% if result.pitch_time_source == "By Target" and result.auto_pitch_time is defined %}
+            <div class="metric-card">
+                <div class="label">Pitch Time (Auto)<br><br></div>
+                <div class="value">{{ "%.1f"|format(result.auto_pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+            </div>
+            {% endif %}
+            {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
             <div class="metric-card">
                 <div class="label">Tolerance<br><br></div>
                 <div class="value">
@@ -1896,8 +2006,8 @@ LAYOUT_TEMPLATE = """
                                 <th>Combined Basic<br>Time</th>
                                 <th>Balancing<br>SAM</th>
                                 <th>M/P</th>
-                                <th>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</th>
-                                {% if result.pitch_time_source == "calculated" %}
+                                <th>{% if result.pitch_time_source == "manual" %}Takt Time{% elif result.pitch_time_source == "By Target" %}Pitch Time (Auto){% else %}Pitch Time{% endif %}</th>
+                                {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
                                 <th>UCL</th>
                                 <th>LCL</th>
                                 {% endif %}
@@ -1916,8 +2026,8 @@ LAYOUT_TEMPLATE = """
                                 <td>{{ row['Combined Basic Time'] }}</td>
                                 <td>{{ row['Balancing SAM'] }}</td>
                                 <td>{{ row['M/P'] }}</td>
-                                <td>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}{{ row['Takt Time'] }}{% else %}{{ row['Pitch Time'] }}{% endif %}</td>
-                                {% if result.pitch_time_source == "calculated" %}
+                                <td>{% if result.pitch_time_source == "manual" %}{{ row['Takt Time'] }}{% elif result.pitch_time_source == "By Target" %}{{ row['Pitch Time (Auto)'] }}{% else %}{{ row['Pitch Time'] }}{% endif %}</td>
+                                {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
                                 <td>{{ row['UCL'] }}</td>
                                 <td>{{ row['LCL'] }}</td>
                                 {% endif %}
@@ -2408,7 +2518,7 @@ HTML_TEMPLATE = """
         th:nth-child(7) { width: 11%; } /* Combined Basic Time */
         th:nth-child(8) { width: 9%; }  /* Balancing SAM */
         th:nth-child(9) { width: 6%; }  /* M/P */
-        th:nth-child(10) { width: 8%; } /* Pitch Time */
+        th:nth-child(10) { width: 10%; } /* Pitch Time / Pitch Time (Auto) */
         th:nth-child(11) { width: 8%; } /* UCL */
         th:nth-child(12) { width: 8%; } /* LCL */
         th:nth-child(13) { width: 10%; } /* Status */
@@ -3566,9 +3676,19 @@ HTML_TEMPLATE = """
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             
             // Determine pitch time label based on source
-            const pitchTimeLabel = (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target") ? 'Takt Time' : 'Pitch Time';
+            let pitchTimeLabel, pitchTimeValue;
+            if (chartData.pitch_time_source === "manual") {
+                pitchTimeLabel = 'Takt Time';
+                pitchTimeValue = chartData.pitch_time;
+            } else if (chartData.pitch_time_source === "By Target") {
+                pitchTimeLabel = 'Pitch Time (Auto)';
+                pitchTimeValue = chartData.auto_pitch_time || chartData.pitch_time;
+            } else {
+                pitchTimeLabel = 'Pitch Time';
+                pitchTimeValue = chartData.pitch_time;
+            }
             
-            // Build datasets array - always include basic time and pitch time line
+            // Build datasets array - always include basic time
             const datasets = [
                 {
                     label: 'Basic Time (SAM)',
@@ -3577,10 +3697,14 @@ HTML_TEMPLATE = """
                     borderColor: 'rgba(59, 130, 246, 1)',
                     borderWidth: 1,
                     borderRadius: 4
-                },
-                {
-                    label: pitchTimeLabel,
-                    data: Array(chartData.operations.length).fill(chartData.pitch_time),
+                }
+            ];
+            
+            // Add pitch time line for manual method, or auto pitch time for auto/By Target methods
+            if (chartData.pitch_time_source === "manual") {
+                datasets.push({
+                    label: `${pitchTimeLabel} ${pitchTimeValue.toFixed(1)}s`,
+                    data: Array(chartData.operations.length).fill(pitchTimeValue),
                     borderColor: 'rgb(34, 197, 94)',
                     backgroundColor: 'rgb(34, 197, 94)',
                     borderWidth: 2,
@@ -3589,14 +3713,24 @@ HTML_TEMPLATE = """
                     type: 'line',
                     fill: false,
                     hidden: false
-                }
-            ];
-            
-            // Only add UCL/LCL for auto method
-            if (chartData.pitch_time_source === "calculated") {
+                });
+            } else if (chartData.pitch_time_source === "calculated" || chartData.pitch_time_source === "By Target") {
+                // For auto and By Target methods, add pitch time, UCL, and LCL lines
                 datasets.push(
                     {
-                        label: 'UCL',
+                        label: `${pitchTimeLabel} ${pitchTimeValue.toFixed(1)}s`,
+                        data: Array(chartData.operations.length).fill(pitchTimeValue),
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgb(34, 197, 94)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        type: 'line',
+                        fill: false,
+                        hidden: false
+                    },
+                    {
+                        label: `UCL ${chartData.ucl.toFixed(1)}s`,
                         data: Array(chartData.operations.length).fill(chartData.ucl),
                         borderColor: 'rgb(239, 68, 68)',
                         backgroundColor: 'rgb(239, 68, 68)',
@@ -3608,7 +3742,7 @@ HTML_TEMPLATE = """
                         hidden: false
                     },
                     {
-                        label: 'LCL',
+                        label: `LCL ${chartData.lcl.toFixed(1)}s`,
                         data: Array(chartData.operations.length).fill(chartData.lcl),
                         borderColor: 'rgb(249, 115, 22)',
                         backgroundColor: 'rgb(249, 115, 22)',
@@ -3741,9 +3875,19 @@ HTML_TEMPLATE = """
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             
             // Determine pitch time label based on source
-            const pitchTimeLabel = (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target") ? 'Takt Time' : 'Pitch Time';
+            let pitchTimeLabel, pitchTimeValue;
+            if (chartData.pitch_time_source === "manual") {
+                pitchTimeLabel = 'Takt Time';
+                pitchTimeValue = chartData.pitch_time;
+            } else if (chartData.pitch_time_source === "By Target") {
+                pitchTimeLabel = 'Pitch Time (Auto)';
+                pitchTimeValue = chartData.auto_pitch_time || chartData.pitch_time;
+            } else {
+                pitchTimeLabel = 'Pitch Time';
+                pitchTimeValue = chartData.pitch_time;
+            }
             
-            // Build datasets array - always include balancing SAM and pitch time line
+            // Build datasets array - always include balancing SAM
             const datasets = [
                 {
                     label: 'Balancing SAM',
@@ -3752,10 +3896,14 @@ HTML_TEMPLATE = """
                     borderColor: 'rgba(59, 130, 246, 1)',
                     borderWidth: 1,
                     borderRadius: 4
-                },
-                {
-                    label: pitchTimeLabel,
-                    data: Array(chartData.workstations.length).fill(chartData.pitch_time),
+                }
+            ];
+            
+            // Add pitch time line for manual method, or auto pitch time for auto/By Target methods
+            if (chartData.pitch_time_source === "manual") {
+                datasets.push({
+                    label: `${pitchTimeLabel} ${pitchTimeValue.toFixed(1)}s`,
+                    data: Array(chartData.workstations.length).fill(pitchTimeValue),
                     borderColor: 'rgb(34, 197, 94)',
                     backgroundColor: 'rgb(34, 197, 94)',
                     borderWidth: 2,
@@ -3764,14 +3912,24 @@ HTML_TEMPLATE = """
                     type: 'line',
                     fill: false,
                     hidden: false
-                }
-            ];
-            
-            // Only add UCL/LCL for auto method
-            if (chartData.pitch_time_source === "calculated") {
+                });
+            } else if (chartData.pitch_time_source === "calculated" || chartData.pitch_time_source === "By Target") {
+                // For auto and By Target methods, add pitch time, UCL, and LCL lines
                 datasets.push(
                     {
-                        label: 'UCL',
+                        label: `${pitchTimeLabel} ${pitchTimeValue.toFixed(1)}s`,
+                        data: Array(chartData.workstations.length).fill(pitchTimeValue),
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgb(34, 197, 94)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        type: 'line',
+                        fill: false,
+                        hidden: false
+                    },
+                    {
+                        label: `UCL ${chartData.ucl.toFixed(1)}s`,
                         data: Array(chartData.workstations.length).fill(chartData.ucl),
                         borderColor: 'rgb(239, 68, 68)',
                         backgroundColor: 'rgb(239, 68, 68)',
@@ -3783,7 +3941,7 @@ HTML_TEMPLATE = """
                         hidden: false
                     },
                     {
-                        label: 'LCL',
+                        label: `LCL ${chartData.lcl.toFixed(1)}s`,
                         data: Array(chartData.workstations.length).fill(chartData.lcl),
                         borderColor: 'rgb(249, 115, 22)',
                         backgroundColor: 'rgb(249, 115, 22)',

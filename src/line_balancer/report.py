@@ -80,13 +80,15 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
     rows = []
     
     # Determine column name based on pitch time source
-    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+    if pitch_time_source == "manual":
         pitch_time_column_name = "Takt Time"
+    elif pitch_time_source == "By Target":
+        pitch_time_column_name = "Pitch Time (Auto)"
     else:
         pitch_time_column_name = "Pitch Time"
     
-    # Check if UCL/LCL should be included (only for auto method)
-    include_ucl_lcl = (pitch_time_source == "calculated")
+    # Check if UCL/LCL should be included (for auto and By Target methods)
+    include_ucl_lcl = (pitch_time_source == "calculated" or pitch_time_source == "By Target")
     
     for ws_num, ws in enumerate(workstations, start=1):
         # Build combined representations using " + " as separator
@@ -116,7 +118,7 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         if include_ucl_lcl and ucl is not None and lcl is not None:
             status = determine_status(ws.balancing_sam, ucl, lcl)
         elif not include_ucl_lcl:
-            # For manual/target methods, use pitch_time as target
+            # For manual method only, use pitch_time as target
             status = determine_status(ws.balancing_sam, pitch_time, pitch_time)
         
         # Build row dictionary
@@ -217,13 +219,15 @@ def print_summary(
         print(f"Line Efficiency%: {line_efficiency:.1f}%")
     print(f"Total ManPower: {sum(ws.manpower for ws in workstations)}")
     # Determine display name based on pitch time source
-    if pitch_time_source == "manual" or pitch_time_source == "By Target":
+    if pitch_time_source == "manual":
         time_display_name = "Takt Time"
+    elif pitch_time_source == "By Target":
+        time_display_name = "Pitch Time (Auto)"
     else:
         time_display_name = "Pitch Time"
     print(f"{time_display_name}: {pitch_time:.1f}s ({pitch_time_source})")
-    # Only show tolerance and UCL/LCL for auto method
-    if pitch_time_source == "calculated":
+    # Show tolerance and UCL/LCL for auto and By Target methods
+    if pitch_time_source == "calculated" or pitch_time_source == "By Target":
         if tolerance != 0.15:
             print(f"Tolerance (Manual): {tolerance * 100:.1f}%")
         else:
@@ -249,7 +253,7 @@ def export_report(workstations: List[Workstation], filepath: str, pitch_time: fl
     """
     Export the report to an Excel file.
     
-    Note: The column name will be "Takt Time" for manual/target methods, "Pitch Time" for auto.
+    Note: The column name will be "Takt Time" for manual method, "Pitch Time (Auto)" for By Target method, "Pitch Time" for auto.
     
     Args:
         workstations: List of Workstation objects
