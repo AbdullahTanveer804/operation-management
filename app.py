@@ -46,17 +46,28 @@ def generate_session_id():
 def store_calculation(session_id: str, data: Dict):
     """Store calculation results in session."""
     SESSIONS[session_id] = data
-    print(f"Stored calculation for session {session_id}. Total sessions: {len(SESSIONS)}")
+    print(
+        f"Stored calculation for session {session_id}. Total sessions: {len(SESSIONS)}"
+    )
 
 
 def get_calculation(session_id: str) -> Optional[Dict]:
     """Retrieve calculation results from session."""
     result = SESSIONS.get(session_id)
-    print(f"Retrieved calculation for session {session_id}: {result is not None}")
+    print(
+        f"Retrieved calculation for session {session_id}: {result is not None}"
+    )
     return result
 
 
-def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 0.15, manual_pitch_time: Optional[float] = None, production_target: Optional[int] = None, shift_time_minutes: Optional[float] = None, pitch_time_method: str = "auto", efficiency_percentage: Optional[float] = None, available_time_minutes: Optional[float] = None) -> Dict:
+def calculate_balance(operations: List[Operation],
+                      tolerance: Optional[float] = 0.15,
+                      manual_pitch_time: Optional[float] = None,
+                      production_target: Optional[int] = None,
+                      shift_time_minutes: Optional[float] = None,
+                      pitch_time_method: str = "auto",
+                      efficiency_percentage: Optional[float] = None,
+                      available_time_minutes: Optional[float] = None) -> Dict:
     """
     Run the complete balancing calculation and return all results.
     
@@ -75,7 +86,7 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
     """
     # Step 1: Sort operations by ID
     sorted_ops = sort_by_id(operations)
-    
+
     # Step 2: Calculate Pitch Time / Takt Time and balance based on method
     demand_met = None
     target_validation_message = None
@@ -84,7 +95,9 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
 
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
-            raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
+            raise ValueError(
+                "Manual pitch time must be provided and positive when method is 'manual'."
+            )
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
         # Clear target-related parameters for manual method
@@ -97,17 +110,23 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         workstations = group_and_balance(sorted_ops, pitch_time, pitch_time)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
-            raise ValueError("Production target must be provided and positive when method is 'target'.")
+            raise ValueError(
+                "Production target must be provided and positive when method is 'target'."
+            )
         if shift_time_minutes is None or shift_time_minutes <= 0:
-            raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        
+            raise ValueError(
+                "Shift time must be provided and positive when method is 'target'."
+            )
+
         # Step 1 — Derive Takt Time from By-Target input
-        takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+        takt_time = calculate_pitch_time_from_target(production_target,
+                                                     shift_time_minutes)
         pitch_time = takt_time
         pitch_time_source = "By Target"
-        
+
         # Step 2 — Validate BEFORE balancing
-        max_sam = max(op.basic_time for op in sorted_ops) if sorted_ops else 0.0
+        max_sam = max(op.basic_time
+                      for op in sorted_ops) if sorted_ops else 0.0
         if max_sam > takt_time:
             demand_met = False
             target_validation_message = "Max basic time (SAM) exceeds Takt Time — customer demand target is NOT currently met."
@@ -119,12 +138,16 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         auto_pitch_time = calculate_pitch_time(sorted_ops)
         if tolerance is None:
             tolerance = 0.15
-        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance)
+        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time,
+                                                       tolerance)
         # Use auto-computed values for display and status determination
         ucl = auto_ucl
         lcl = auto_lcl
         # Use strict=True to remove 0.5s relaxation for By Target workflow
-        workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl, strict=True)
+        workstations = group_and_balance(sorted_ops,
+                                         auto_ucl,
+                                         auto_lcl,
+                                         strict=True)
 
         # Step 4 — Recheck balanced result against Takt Time, loop until it passes or safety cap is hit
         attempt = 1
@@ -132,18 +155,28 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         target_recheck_messages = []
 
         while attempt <= MAX_ATTEMPTS:
-            recheck_max_sam = max(ws.balancing_sam for ws in workstations) if workstations else 0.0
+            recheck_max_sam = max(
+                ws.balancing_sam
+                for ws in workstations) if workstations else 0.0
             if recheck_max_sam <= takt_time:
-                target_recheck_messages.append("Balancing OK — result satisfies Takt Time.")
+                target_recheck_messages.append(
+                    "Balancing OK — result satisfies Takt Time.")
                 target_recheck_summary = f"Balancing OK — result satisfies Takt Time (Attempt {attempt})."
                 break
             else:
-                target_recheck_messages.append(f"Balancing not OK (attempt {attempt}) — re-balancing required.")
-                workstations = group_and_balance(sorted_ops, auto_ucl, auto_lcl, strict=True)
+                target_recheck_messages.append(
+                    f"Balancing not OK (attempt {attempt}) — re-balancing required."
+                )
+                workstations = group_and_balance(sorted_ops,
+                                                 auto_ucl,
+                                                 auto_lcl,
+                                                 strict=True)
                 attempt += 1
 
         if attempt > MAX_ATTEMPTS:
-            target_recheck_messages.append(f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result.")
+            target_recheck_messages.append(
+                f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result."
+            )
             target_recheck_summary = f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result."
     else:  # auto (default)
         if tolerance is None:
@@ -157,31 +190,38 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         ucl, lcl = calculate_tolerance_bands(pitch_time, tolerance)
         # Step 3: Balance operations into workstations
         workstations = group_and_balance(sorted_ops, ucl, lcl)
-    
+
     # Step 4: Calculate line balancing rate
     line_balancing_rate = calculate_line_balancing_rate(workstations)
-    
+
     # Step 4.5: Calculate balance delay
     balance_delay = calculate_balance_delay(workstations, sorted_ops)
-    
+
     # Step 4.6: Calculate line efficiency (if production target and shift time provided and method is target)
     line_efficiency = None
     if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
         if production_target <= 0 or shift_time_minutes <= 0:
-            raise ValueError("Production target and shift time must be positive numbers.")
-        line_efficiency = calculate_line_efficiency(workstations, sorted_ops, production_target, shift_time_minutes)
-    
+            raise ValueError(
+                "Production target and shift time must be positive numbers.")
+        line_efficiency = calculate_line_efficiency(workstations, sorted_ops,
+                                                    production_target,
+                                                    shift_time_minutes)
+
     # Step 4.7: Calculate smoothing index
     smoothing_index = calculate_smoothing_index(workstations)
-    
+
     # Step 4.8: Calculate total basic time (SAM) in minutes
-    total_basic_time = sum(op.basic_time for op in sorted_ops) / 60  # Convert seconds to minutes
-    
+    total_basic_time = sum(
+        op.basic_time for op in sorted_ops) / 60  # Convert seconds to minutes
+
     # Step 4.9: Calculate before-balancing metrics
     # Only pass tolerance for auto method
     before_tolerance = tolerance if pitch_time_method == "auto" else None
-    before_metrics = calculate_all_before_metrics(sorted_ops, production_target, shift_time_minutes, before_tolerance, pitch_time_method, manual_pitch_time, efficiency_percentage, available_time_minutes)
-    
+    before_metrics = calculate_all_before_metrics(
+        sorted_ops, production_target, shift_time_minutes, before_tolerance,
+        pitch_time_method, manual_pitch_time, efficiency_percentage,
+        available_time_minutes)
+
     # Step 4.10: Calculate Target (if both efficiency and available time are provided)
     target_before = None
     target_after = None
@@ -189,32 +229,38 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         # Calculate Target for before balancing
         # Target = (Efficiency% × Total Manpower × Available Time(minutes)) / Total Basic Time(SAM in Minutes)
         total_manpower_before = before_metrics["total_manpower"]
-        total_basic_time_minutes_before = before_metrics["total_basic_time_minutes"]
+        total_basic_time_minutes_before = before_metrics[
+            "total_basic_time_minutes"]
         if total_basic_time_minutes_before > 0:
-            target_before = (efficiency_percentage / 100 * total_manpower_before * available_time_minutes) / total_basic_time_minutes_before
-        
+            target_before = (
+                efficiency_percentage / 100 * total_manpower_before *
+                available_time_minutes) / total_basic_time_minutes_before
+
         # Calculate Target for after balancing
         total_manpower_after = sum(ws.manpower for ws in workstations)
         total_basic_time_minutes_after = total_basic_time  # Already calculated in minutes
         if total_basic_time_minutes_after > 0:
-            target_after = (efficiency_percentage / 100 * total_manpower_after * available_time_minutes) / total_basic_time_minutes_after
-    
+            target_after = (
+                efficiency_percentage / 100 * total_manpower_after *
+                available_time_minutes) / total_basic_time_minutes_after
+
     # Step 4.11: Calculate Labour Productivity for before and after balancing
     # Labour Productivity = Production Target (Customer Demand) / Total Manpower
     # Use production_target if provided (target method), otherwise use calculated target
     labour_productivity_before = before_metrics.get("labour_productivity")
-    
+
     labour_productivity_after = None
     target_for_productivity_after = production_target if production_target is not None else target_after
     total_manpower_after = sum(ws.manpower for ws in workstations)
     if target_for_productivity_after is not None and total_manpower_after > 0:
         labour_productivity_after = target_for_productivity_after / total_manpower_after
-    
+
     # Step 5: Build report
     # For By Target method, use auto_pitch_time for display in the table alongside takt_time
     display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
-    report_df = build_report_dataframe(workstations, ucl, lcl, display_pitch_time, pitch_time_source)
-    
+    report_df = build_report_dataframe(workstations, ucl, lcl,
+                                       display_pitch_time, pitch_time_source)
+
     # Build return dictionary
     result = {
         "operations": operations,
@@ -244,21 +290,27 @@ def calculate_balance(operations: List[Operation], tolerance: Optional[float] = 
         "target_recheck_messages": target_recheck_messages,
         "target_recheck_summary": target_recheck_summary,
     }
-    
+
     # Include tolerance for auto and By Target methods
     if pitch_time_source == "calculated" or pitch_time_source == "By Target":
         result["tolerance"] = tolerance
-    
+
     # For By Target method, also include auto-computed values for display
     if pitch_time_method == "target":
         result["auto_pitch_time"] = auto_pitch_time
         result["auto_ucl"] = auto_ucl
         result["auto_lcl"] = auto_lcl
-    
+
     return result
 
 
-def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None, auto_pitch_time=None) -> io.BytesIO:
+def generate_chart_image(workstations,
+                         pitch_time,
+                         ucl,
+                         lcl,
+                         pitch_time_source="calculated",
+                         y_max=None,
+                         auto_pitch_time=None) -> io.BytesIO:
     """
     Generate a bar chart image using matplotlib that matches the client-side Chart.js styling.
     
@@ -276,17 +328,17 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
     """
     # Use non-interactive backend to avoid display issues
     matplotlib.use('Agg')
-    
+
     # Prepare data
     workstation_names = []
     balancing_sam = []
-    
+
     for ws in workstations:
         # Join operation names with " + " for each workstation
         op_names = " + ".join(op.name for op in ws.operations)
         workstation_names.append(op_names)
         balancing_sam.append(ws.balancing_sam)
-    
+
     # Determine pitch time label based on source
     if pitch_time_source == "manual":
         pitch_time_label = "Takt Time"
@@ -294,107 +346,167 @@ def generate_chart_image(workstations, pitch_time, ucl, lcl, pitch_time_source="
         pitch_time_label = "Pitch Time (Auto)"
     else:
         pitch_time_label = "Pitch Time"
-    
+
     # For By Target method, use auto_pitch_time for display
     display_pitch_time = auto_pitch_time if pitch_time_source == "By Target" and auto_pitch_time is not None else pitch_time
-    
+
     # Create figure with appropriate size
     fig, ax = plt.subplots(figsize=(18, 9))
-    
+
     # Create bar chart with blue color matching Chart.js
-    bars = ax.bar(range(len(workstation_names)), balancing_sam, 
-                  color=(59/255, 130/255, 246/255, 0.8), 
-                  edgecolor=(59/255, 130/255, 246/255, 1.0),
+    bars = ax.bar(range(len(workstation_names)),
+                  balancing_sam,
+                  color=(59 / 255, 130 / 255, 246 / 255, 0.8),
+                  edgecolor=(59 / 255, 130 / 255, 246 / 255, 1.0),
                   linewidth=1,
                   width=0.6,
                   label='Balancing SAM')
-    
+
     # Add reference lines without labels (labels will be in legend)
     # Show UCL/LCL for auto and By Target methods
-    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
-        ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
-        ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target"
+                                             and ucl is not None
+                                             and lcl is not None):
+        ax.axhline(y=ucl,
+                   color=(239 / 255, 68 / 255, 68 / 255),
+                   linestyle='--',
+                   linewidth=2)
+        ax.axhline(y=lcl,
+                   color=(249 / 255, 115 / 255, 22 / 255),
+                   linestyle='--',
+                   linewidth=2)
     # Show pitch time/takt time line for manual method only
     if pitch_time_source == "manual":
-        ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+        ax.axhline(y=pitch_time,
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   linestyle='--',
+                   linewidth=2)
     # Show auto pitch time line for auto and By Target methods
-    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and auto_pitch_time is not None):
-        ax.axhline(y=display_pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
-    
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target"
+                                             and auto_pitch_time is not None):
+        ax.axhline(y=display_pitch_time,
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   linestyle='--',
+                   linewidth=2)
+
     # Set Y-axis maximum if provided
     if y_max is not None:
         ax.set_ylim(0, y_max)
-    
+
     # Set labels and title
-    ax.set_xlabel('Workstations', fontsize=12, fontweight='500', color='#333333')
-    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500', color='#333333')
-    ax.set_title('After Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
-    
+    ax.set_xlabel('Workstations',
+                  fontsize=12,
+                  fontweight='500',
+                  color='#333333')
+    ax.set_ylabel('Time (seconds)',
+                  fontsize=12,
+                  fontweight='500',
+                  color='#333333')
+    ax.set_title('After Balancing Chart',
+                 fontsize=14,
+                 fontweight='600',
+                 color='#3b82f6')
+
     # Set x-axis ticks to workstation names
     ax.set_xticks(range(len(workstation_names)))
-    ax.set_xticklabels(workstation_names, rotation=45, ha='right', fontsize=9, color='#333333')
-    
+    ax.set_xticklabels(workstation_names,
+                       rotation=45,
+                       ha='right',
+                       fontsize=9,
+                       color='#333333')
+
     # Format y-axis labels (lock ticks first to avoid matplotlib UserWarning)
     from matplotlib.ticker import FixedLocator
     yticks = ax.get_yticks()
     ax.yaxis.set_major_locator(FixedLocator(yticks))
-    ax.set_yticklabels([f'{x:.1f}s' for x in yticks], fontsize=10, color='#333333')
-    
+    ax.set_yticklabels([f'{x:.1f}s' for x in yticks],
+                       fontsize=10,
+                       color='#333333')
+
     # Set tick colors
     ax.tick_params(axis='x', colors='#333333')
     ax.tick_params(axis='y', colors='#333333')
-    
+
     # Create custom legend with reference lines
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Balancing SAM'),
+        Line2D([0], [0],
+               color=(59 / 255, 130 / 255, 246 / 255, 0.8),
+               lw=4,
+               label='Balancing SAM'),
     ]
-    
+
     # Add pitch time/takt time line for manual method
     if pitch_time_source == "manual":
         legend_elements.append(
-            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s')
-        )
-    
+            Line2D([0], [0],
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'{pitch_time_label} {display_pitch_time:.1f}s'))
+
     # Add UCL/LCL and pitch time line for auto and By Target methods
-    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target"
+                                             and ucl is not None
+                                             and lcl is not None):
         legend_elements.extend([
-            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s'),
-            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label=f'UCL {ucl:.1f}s'),
-            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label=f'LCL {lcl:.1f}s')
+            Line2D([0], [0],
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'{pitch_time_label} {display_pitch_time:.1f}s'),
+            Line2D([0], [0],
+                   color=(239 / 255, 68 / 255, 68 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'UCL {ucl:.1f}s'),
+            Line2D([0], [0],
+                   color=(249 / 255, 115 / 255, 22 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'LCL {lcl:.1f}s')
         ])
-    
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
-    
+
+    ax.legend(handles=legend_elements,
+              loc='upper right',
+              fontsize=10,
+              labelcolor='#333333')
+
     # Add grid for better readability
     ax.grid(axis='y', alpha=0.1, linestyle='-')
     ax.grid(axis='x', alpha=0.1, linestyle='-')
-    
+
     # Set background color to white for Excel export
     ax.set_facecolor('white')
     fig.patch.set_facecolor('white')
-    
+
     # Set axis colors for light theme visibility
     ax.spines['bottom'].set_color('#333333')
-    ax.spines['top'].set_color('#333333') 
+    ax.spines['top'].set_color('#333333')
     ax.spines['left'].set_color('#333333')
     ax.spines['right'].set_color('#333333')
-    
+
     # Adjust layout to prevent label cutoff
     plt.tight_layout()
-    
+
     # Save to BytesIO
     img_buffer = io.BytesIO()
     plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
     img_buffer.seek(0)
-    
+
     # Close the figure to free memory
     plt.close(fig)
-    
+
     return img_buffer
 
 
-def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_source="calculated", y_max=None, auto_pitch_time=None) -> io.BytesIO:
+def generate_before_chart_image(operations,
+                                pitch_time,
+                                ucl,
+                                lcl,
+                                pitch_time_source="calculated",
+                                y_max=None,
+                                auto_pitch_time=None) -> io.BytesIO:
     """
     Generate a before balancing bar chart image using matplotlib.
     
@@ -412,11 +524,11 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
     """
     # Use non-interactive backend to avoid display issues
     matplotlib.use('Agg')
-    
+
     # Prepare data
     operation_names = [op.name for op in operations]
     basic_times = [op.basic_time for op in operations]
-    
+
     # Determine pitch time label based on source
     if pitch_time_source == "manual":
         pitch_time_label = "Takt Time"
@@ -424,107 +536,159 @@ def generate_before_chart_image(operations, pitch_time, ucl, lcl, pitch_time_sou
         pitch_time_label = "Pitch Time (Auto)"
     else:
         pitch_time_label = "Pitch Time"
-    
+
     # For By Target method, use auto_pitch_time for display
     display_pitch_time = auto_pitch_time if pitch_time_source == "By Target" and auto_pitch_time is not None else pitch_time
-    
+
     # Create figure with appropriate size
     fig, ax = plt.subplots(figsize=(18, 9))
-    
+
     # Create bar chart with blue color matching Chart.js
-    bars = ax.bar(range(len(operation_names)), basic_times, 
-                  color=(59/255, 130/255, 246/255, 0.8), 
-                  edgecolor=(59/255, 130/255, 246/255, 1.0),
+    bars = ax.bar(range(len(operation_names)),
+                  basic_times,
+                  color=(59 / 255, 130 / 255, 246 / 255, 0.8),
+                  edgecolor=(59 / 255, 130 / 255, 246 / 255, 1.0),
                   linewidth=1,
                   width=0.6,
                   label='Basic Time (SAM)')
-    
+
     # Add reference lines without labels (labels will be in legend)
     # Show UCL/LCL for auto and By Target methods
-    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
-        ax.axhline(y=ucl, color=(239/255, 68/255, 68/255), linestyle='--', linewidth=2)
-        ax.axhline(y=lcl, color=(249/255, 115/255, 22/255), linestyle='--', linewidth=2)
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target"
+                                             and ucl is not None
+                                             and lcl is not None):
+        ax.axhline(y=ucl,
+                   color=(239 / 255, 68 / 255, 68 / 255),
+                   linestyle='--',
+                   linewidth=2)
+        ax.axhline(y=lcl,
+                   color=(249 / 255, 115 / 255, 22 / 255),
+                   linestyle='--',
+                   linewidth=2)
     # Show pitch time/takt time line for manual method only
     if pitch_time_source == "manual":
-        ax.axhline(y=pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
+        ax.axhline(y=pitch_time,
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   linestyle='--',
+                   linewidth=2)
     # Show auto pitch time line for auto and By Target methods
-    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and auto_pitch_time is not None):
-        ax.axhline(y=display_pitch_time, color=(34/255, 197/255, 94/255), linestyle='--', linewidth=2)
-    
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target"
+                                             and auto_pitch_time is not None):
+        ax.axhline(y=display_pitch_time,
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   linestyle='--',
+                   linewidth=2)
+
     # Set Y-axis maximum if provided
     if y_max is not None:
         ax.set_ylim(0, y_max)
-    
+
     # Set labels and title
     ax.set_xlabel('Operations', fontsize=12, fontweight='500', color='#333333')
-    ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='500', color='#333333')
-    ax.set_title('Before Balancing Chart', fontsize=14, fontweight='600', color='#3b82f6')
-    
+    ax.set_ylabel('Time (seconds)',
+                  fontsize=12,
+                  fontweight='500',
+                  color='#333333')
+    ax.set_title('Before Balancing Chart',
+                 fontsize=14,
+                 fontweight='600',
+                 color='#3b82f6')
+
     # Set x-axis ticks to operation names
     ax.set_xticks(range(len(operation_names)))
-    ax.set_xticklabels(operation_names, rotation=45, ha='right', fontsize=9, color='#333333')
-    
+    ax.set_xticklabels(operation_names,
+                       rotation=45,
+                       ha='right',
+                       fontsize=9,
+                       color='#333333')
+
     # Format y-axis labels (lock ticks first to avoid matplotlib UserWarning)
     from matplotlib.ticker import FixedLocator
     yticks = ax.get_yticks()
     ax.yaxis.set_major_locator(FixedLocator(yticks))
-    ax.set_yticklabels([f'{x:.1f}s' for x in yticks], fontsize=10, color='#333333')
-    
+    ax.set_yticklabels([f'{x:.1f}s' for x in yticks],
+                       fontsize=10,
+                       color='#333333')
+
     # Set tick colors
     ax.tick_params(axis='x', colors='#333333')
     ax.tick_params(axis='y', colors='#333333')
-    
+
     # Create custom legend with reference lines
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], color=(59/255, 130/255, 246/255, 0.8), lw=4, label='Basic Time (SAM)'),
+        Line2D([0], [0],
+               color=(59 / 255, 130 / 255, 246 / 255, 0.8),
+               lw=4,
+               label='Basic Time (SAM)'),
     ]
-    
+
     # Add pitch time/takt time line for manual method
     if pitch_time_source == "manual":
         legend_elements.append(
-            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s')
-        )
-    
+            Line2D([0], [0],
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'{pitch_time_label} {display_pitch_time:.1f}s'))
+
     # Add UCL/LCL and pitch time line for auto and By Target methods
-    if pitch_time_source == "calculated" or (pitch_time_source == "By Target" and ucl is not None and lcl is not None):
+    if pitch_time_source == "calculated" or (pitch_time_source == "By Target"
+                                             and ucl is not None
+                                             and lcl is not None):
         legend_elements.extend([
-            Line2D([0], [0], color=(34/255, 197/255, 94/255), lw=2, linestyle='--', label=f'{pitch_time_label} {display_pitch_time:.1f}s'),
-            Line2D([0], [0], color=(239/255, 68/255, 68/255), lw=2, linestyle='--', label=f'UCL {ucl:.1f}s'),
-            Line2D([0], [0], color=(249/255, 115/255, 22/255), lw=2, linestyle='--', label=f'LCL {lcl:.1f}s')
+            Line2D([0], [0],
+                   color=(34 / 255, 197 / 255, 94 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'{pitch_time_label} {display_pitch_time:.1f}s'),
+            Line2D([0], [0],
+                   color=(239 / 255, 68 / 255, 68 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'UCL {ucl:.1f}s'),
+            Line2D([0], [0],
+                   color=(249 / 255, 115 / 255, 22 / 255),
+                   lw=2,
+                   linestyle='--',
+                   label=f'LCL {lcl:.1f}s')
         ])
-    
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=10, labelcolor='#333333')
-    
+
+    ax.legend(handles=legend_elements,
+              loc='upper right',
+              fontsize=10,
+              labelcolor='#333333')
+
     # Add grid for better readability
     ax.grid(axis='y', alpha=0.1, linestyle='-')
     ax.grid(axis='x', alpha=0.1, linestyle='-')
-    
+
     # Set background color to white for Excel export
     ax.set_facecolor('white')
     fig.patch.set_facecolor('white')
-    
+
     # Set axis colors for light theme visibility
     ax.spines['bottom'].set_color('#333333')
-    ax.spines['top'].set_color('#333333') 
+    ax.spines['top'].set_color('#333333')
     ax.spines['left'].set_color('#333333')
     ax.spines['right'].set_color('#333333')
-    
+
     # Adjust layout to prevent label cutoff
     plt.tight_layout()
-    
+
     # Save to BytesIO
     img_buffer = io.BytesIO()
     plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
     img_buffer.seek(0)
-    
+
     # Close the figure to free memory
     plt.close(fig)
-    
+
     return img_buffer
 
 
 # ============== ROUTES ==============
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -533,7 +697,7 @@ def index():
     result = None
     session_id = None
     rows = []
-    
+
     if request.method == "POST":
         try:
             # Get file and parameters
@@ -545,18 +709,24 @@ def index():
             shift_time_str = request.form.get("shift_time", "")
             efficiency_str = request.form.get("efficiency", "")
             available_time_str = request.form.get("available_time", "")
-            
+
             if not file or file.filename == "":
                 error = "Please select a file to upload."
             else:
                 # Parse parameters
-                manual_pitch_time = float(pitch_time_str) if pitch_time_str else None
-                tolerance_percentage = float(tolerance_str) if tolerance_str else None
-                production_target = int(production_target_str) if production_target_str else None
-                shift_time_minutes = float(shift_time_str) if shift_time_str else None
-                efficiency_percentage = float(efficiency_str) if efficiency_str else None
-                available_time_minutes = float(available_time_str) if available_time_str else None
-                
+                manual_pitch_time = float(
+                    pitch_time_str) if pitch_time_str else None
+                tolerance_percentage = float(
+                    tolerance_str) if tolerance_str else None
+                production_target = int(
+                    production_target_str) if production_target_str else None
+                shift_time_minutes = float(
+                    shift_time_str) if shift_time_str else None
+                efficiency_percentage = float(
+                    efficiency_str) if efficiency_str else None
+                available_time_minutes = float(
+                    available_time_str) if available_time_str else None
+
                 # Validate tolerance range (0-100% input) - only for auto method
                 tolerance = 0.15  # Default tolerance
                 if pitch_time_method == "auto":
@@ -567,12 +737,12 @@ def index():
                 else:
                     # For manual and target methods, ignore tolerance
                     tolerance = None
-                
+
                 # Validate efficiency if provided
                 if efficiency_percentage is not None:
                     if efficiency_percentage <= 0 or efficiency_percentage > 100:
                         error = "Efficiency must be between 0 and 100%."
-                
+
                 # Validate available time if provided
                 if available_time_minutes is not None:
                     if available_time_minutes <= 0:
@@ -580,7 +750,7 @@ def index():
                     # Use a sensible upper bound (e.g., 1440 minutes = 24 hours)
                     if available_time_minutes > 1440:
                         error = "Available time must be less than 1440 minutes (24 hours)."
-                
+
                 # Validate based on pitch time method
                 if pitch_time_method == "manual":
                     if manual_pitch_time is None or manual_pitch_time <= 0:
@@ -603,55 +773,69 @@ def index():
                     shift_time_minutes = None
                     production_target = None
                     # Keep efficiency and available time for auto method (they are optional)
-                
+
                 if not error:
                     # Read operations from file
                     filepath = Path(file.filename)
-                    if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+                    if filepath.suffix.lower() not in (".csv", ".xlsx",
+                                                       ".xls"):
                         error = "File must be Excel (.xlsx, .xls) or CSV."
                     else:
                         # Save temporarily and read
                         temp_path = None
                         try:
-                            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix=Path(file.filename).suffix) as tmp:
+                            with tempfile.NamedTemporaryFile(
+                                    mode='wb',
+                                    delete=False,
+                                    suffix=Path(file.filename).suffix) as tmp:
                                 file.save(tmp.name)
                                 temp_path = tmp.name
-                            
+
                             operations = read_operations(temp_path)
-                            
+
                             # Check for errors in operations
                             flagged = [op for op in operations if op.flagged]
                             if flagged:
-                                error_list = "<br>".join([f"Op {op.op_id}: {op.flagged}" for op in flagged])
+                                error_list = "<br>".join([
+                                    f"Op {op.op_id}: {op.flagged}"
+                                    for op in flagged
+                                ])
                                 error = f"File has validation errors:<br>{error_list}"
                             else:
                                 # Run calculation
-                                result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method, efficiency_percentage, available_time_minutes)
-                                
+                                result = calculate_balance(
+                                    operations, tolerance, manual_pitch_time,
+                                    production_target, shift_time_minutes,
+                                    pitch_time_method, efficiency_percentage,
+                                    available_time_minutes)
+
                                 # Convert dataframe to list of dicts for template
                                 df = result["report_df"]
                                 rows = df.to_dict("records")
-                                
+
                                 # Format numeric values
                                 for row in rows:
                                     row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
                                     row["Balancing SAM"] = f"{row['Balancing SAM']:.1f}"
                                     # Format new columns if they are numeric - handle dynamic column name
-                                    if "Pitch Time" in row and row["Pitch Time"]:
+                                    if "Pitch Time" in row and row[
+                                            "Pitch Time"]:
                                         row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
-                                    elif "Takt Time" in row and row["Takt Time"]:
+                                    elif "Takt Time" in row and row[
+                                            "Takt Time"]:
                                         row["Takt Time"] = f"{row['Takt Time']:.1f}"
-                                    elif "Pitch Time (Auto)" in row and row["Pitch Time (Auto)"]:
+                                    elif "Pitch Time (Auto)" in row and row[
+                                            "Pitch Time (Auto)"]:
                                         row["Pitch Time (Auto)"] = f"{row['Pitch Time (Auto)']:.1f}"
                                     if row.get("UCL"):
                                         row["UCL"] = f"{row['UCL']:.1f}"
                                     if row.get("LCL"):
                                         row["LCL"] = f"{row['LCL']:.1f}"
-                                
+
                                 # Generate session ID
                                 session_id = generate_session_id()
                                 store_calculation(session_id, result)
-                        
+
                         finally:
                             # Clean up temp file
                             if temp_path and os.path.exists(temp_path):
@@ -659,14 +843,14 @@ def index():
                                     os.remove(temp_path)
                                 except:
                                     pass
-        
+
         except Exception as e:
             error = f"Error processing file: {str(e)}"
-    
-    return render_template_string(HTML_TEMPLATE, 
-                                  error=error, 
-                                  result=result, 
-                                  rows=rows, 
+
+    return render_template_string(HTML_TEMPLATE,
+                                  error=error,
+                                  result=result,
+                                  rows=rows,
                                   session_id=session_id)
 
 
@@ -676,61 +860,57 @@ def export(format: str, session_id: str):
     calc = get_calculation(session_id)
     if not calc:
         return jsonify({"error": "Session not found"}), 404
-    
+
     df = calc["report_df"]
-    
+
     if format == "xlsx":
         # Calculate shared Y-axis maximum for both charts
-        before_basic_times = [op.basic_time for op in calc["sorted_operations"]]
+        before_basic_times = [
+            op.basic_time for op in calc["sorted_operations"]
+        ]
         after_balancing_sam = [ws.balancing_sam for ws in calc["workstations"]]
-        
+
         max_before = max(before_basic_times) if before_basic_times else 0
         max_after = max(after_balancing_sam) if after_balancing_sam else 0
         shared_y_max = max(max_before, max_after) * 1.1  # Add 10% padding
-        
+
         # Generate before chart image
         before_chart_img = generate_before_chart_image(
-            calc["sorted_operations"],
-            calc["pitch_time"],
-            calc["ucl"],
-            calc["lcl"],
-            calc.get("pitch_time_source", "calculated"),
-            shared_y_max,
-            calc.get("auto_pitch_time")
-        )
-        
+            calc["sorted_operations"], calc["pitch_time"],
+            calc["ucl"], calc["lcl"],
+            calc.get("pitch_time_source", "calculated"), shared_y_max,
+            calc.get("auto_pitch_time"))
+
         # Generate after chart image
         after_chart_img = generate_chart_image(
-            calc["workstations"],
-            calc["pitch_time"],
-            calc["ucl"],
-            calc["lcl"],
-            calc.get("pitch_time_source", "calculated"),
-            shared_y_max,
-            calc.get("auto_pitch_time")
-        )
-        
+            calc["workstations"], calc["pitch_time"], calc["ucl"], calc["lcl"],
+            calc.get("pitch_time_source", "calculated"), shared_y_max,
+            calc.get("auto_pitch_time"))
+
         # Create Excel workbook with openpyxl
         wb = Workbook()
         worksheet = wb.active
         worksheet.title = "Line Balance Report"
-        
+
         # Add title and metrics
         worksheet['A1'] = "Line Balancing Report"
         worksheet['A1'].font = Font(size=16, bold=True, color="3B82F6")
-        worksheet['A1'].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        worksheet['A1'].alignment = Alignment(horizontal="center",
+                                              vertical="center",
+                                              wrap_text=True)
         worksheet.merge_cells('A1:M1')
-        
+
         # Add metrics below title in the specified order
         current_row = 2
-        
+
         # 1. Production Target (If available)
         production_target = calc.get('production_target')
         if production_target is not None:
-            worksheet[f'A{current_row}'] = f"Customer Demand: {production_target} units"
+            worksheet[
+                f'A{current_row}'] = f"Customer Demand: {production_target} units"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 2. Shift Time (If available)
         shift_time = calc.get('shift_time_minutes')
         if shift_time is not None:
@@ -739,11 +919,13 @@ def export(format: str, session_id: str):
                 formatted_shift = int(shift_time)
             else:
                 truncated = int(shift_time * 10) / 10
-                formatted_shift = int(truncated) if truncated == int(truncated) else truncated
-            worksheet[f'A{current_row}'] = f"Available Time: {formatted_shift} minutes"
+                formatted_shift = int(truncated) if truncated == int(
+                    truncated) else truncated
+            worksheet[
+                f'A{current_row}'] = f"Available Time: {formatted_shift} minutes"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 2.5. Required Efficiency (If available)
         efficiency_percentage = calc.get('efficiency_percentage')
         available_time_for_target = calc.get('available_time_minutes')
@@ -753,39 +935,46 @@ def export(format: str, session_id: str):
                 formatted_efficiency = int(efficiency_percentage)
             else:
                 truncated = int(efficiency_percentage * 10) / 10
-                formatted_efficiency = int(truncated) if truncated == int(truncated) else truncated
-            worksheet[f'A{current_row}'] = f"Required Efficiency: {formatted_efficiency}%"
+                formatted_efficiency = int(truncated) if truncated == int(
+                    truncated) else truncated
+            worksheet[
+                f'A{current_row}'] = f"Required Efficiency: {formatted_efficiency}%"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-            
+
             # Also include the available time used for efficiency calculation
             if available_time_for_target == int(available_time_for_target):
                 formatted_available_time = int(available_time_for_target)
             else:
                 truncated = int(available_time_for_target * 10) / 10
-                formatted_available_time = int(truncated) if truncated == int(truncated) else truncated
-            worksheet[f'A{current_row}'] = f"Available Time (for Target): {formatted_available_time} minutes"
+                formatted_available_time = int(truncated) if truncated == int(
+                    truncated) else truncated
+            worksheet[
+                f'A{current_row}'] = f"Available Time (for Target): {formatted_available_time} minutes"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 3. No. of Composite operations
         total_composite_operations = len(calc['workstations'])
-        worksheet[f'A{current_row}'] = f"Composite operations: {total_composite_operations}"
+        worksheet[
+            f'A{current_row}'] = f"Composite operations: {total_composite_operations}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 4. Total Basic Time (SAM)
-        total_basic_time = calc['total_basic_time']  # Already calculated in minutes
+        total_basic_time = calc[
+            'total_basic_time']  # Already calculated in minutes
         # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
         if total_basic_time == int(total_basic_time):
             formatted_sam = int(total_basic_time)
         else:
             truncated = int(total_basic_time * 10) / 10
-            formatted_sam = int(truncated) if truncated == int(truncated) else truncated
+            formatted_sam = int(truncated) if truncated == int(
+                truncated) else truncated
         worksheet[f'A{current_row}'] = f"SAM: {formatted_sam} min"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 5. Line Efficiency% (If available)
         line_efficiency = calc.get('line_efficiency')
         if line_efficiency is not None:
@@ -794,11 +983,13 @@ def export(format: str, session_id: str):
                 formatted_efficiency = int(line_efficiency)
             else:
                 truncated = int(line_efficiency * 10) / 10
-                formatted_efficiency = int(truncated) if truncated == int(truncated) else truncated
-            worksheet[f'A{current_row}'] = f"Required Efficiency: {formatted_efficiency}%"
+                formatted_efficiency = int(truncated) if truncated == int(
+                    truncated) else truncated
+            worksheet[
+                f'A{current_row}'] = f"Required Efficiency: {formatted_efficiency}%"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 6. Total ManPower
         manpower_sum = 0
         for each_ws in calc['workstations']:
@@ -807,7 +998,7 @@ def export(format: str, session_id: str):
         worksheet[f'A{current_row}'] = f"ManPower: {total_manpower}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 7. Pitch Time / Takt Time
         pitch_time_source_tag = calc.get('pitch_time_source', 'calculated')
         if pitch_time_source_tag == "manual":
@@ -822,29 +1013,34 @@ def export(format: str, session_id: str):
             source_display = "(Auto)"
             time_display_name = "Pitch Time"
             display_time = calc['pitch_time']
-        
+
         # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
         if display_time == int(display_time):
             formatted_pitch = int(display_time)
         else:
             truncated = int(display_time * 10) / 10
-            formatted_pitch = int(truncated) if truncated == int(truncated) else truncated
-        worksheet[f'A{current_row}'] = f"{time_display_name}: {formatted_pitch}s {source_display}"
+            formatted_pitch = int(truncated) if truncated == int(
+                truncated) else truncated
+        worksheet[
+            f'A{current_row}'] = f"{time_display_name}: {formatted_pitch}s {source_display}"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 7.5. Pitch Time (Auto) for By Target method
-        if pitch_time_source_tag == "By Target" and calc.get('auto_pitch_time') is not None:
+        if pitch_time_source_tag == "By Target" and calc.get(
+                'auto_pitch_time') is not None:
             auto_pitch = calc['auto_pitch_time']
             if auto_pitch == int(auto_pitch):
                 formatted_auto_pitch = int(auto_pitch)
             else:
                 truncated = int(auto_pitch * 10) / 10
-                formatted_auto_pitch = int(truncated) if truncated == int(truncated) else truncated
-            worksheet[f'A{current_row}'] = f"Pitch Time (Auto): {formatted_auto_pitch}s"
+                formatted_auto_pitch = int(truncated) if truncated == int(
+                    truncated) else truncated
+            worksheet[
+                f'A{current_row}'] = f"Pitch Time (Auto): {formatted_auto_pitch}s"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 8. Tolerance (for auto and By Target methods)
         tolerance_value = calc.get('tolerance')
         if tolerance_value is not None:
@@ -854,7 +1050,8 @@ def export(format: str, session_id: str):
                 formatted_tolerance = int(tolerance_percentage)
             else:
                 truncated = int(tolerance_percentage * 10) / 10
-                formatted_tolerance = int(truncated) if truncated == int(truncated) else truncated
+                formatted_tolerance = int(truncated) if truncated == int(
+                    truncated) else truncated
             if tolerance_percentage != 15.0:
                 tolerance_label = f"Tolerance (Manual): {formatted_tolerance}%"
             else:
@@ -862,7 +1059,7 @@ def export(format: str, session_id: str):
             worksheet[f'A{current_row}'] = tolerance_label
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 9. UCL (for auto and By Target methods)
         if calc.get('ucl') is not None:
             # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
@@ -870,7 +1067,8 @@ def export(format: str, session_id: str):
                 formatted_ucl = int(calc['ucl'])
             else:
                 truncated = int(calc['ucl'] * 10) / 10
-                formatted_ucl = int(truncated) if truncated == int(truncated) else truncated
+                formatted_ucl = int(truncated) if truncated == int(
+                    truncated) else truncated
             worksheet[f'A{current_row}'] = f"UCL: {formatted_ucl}s"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
@@ -882,18 +1080,20 @@ def export(format: str, session_id: str):
                 formatted_lcl = int(calc['lcl'])
             else:
                 truncated = int(calc['lcl'] * 10) / 10
-                formatted_lcl = int(truncated) if truncated == int(truncated) else truncated
+                formatted_lcl = int(truncated) if truncated == int(
+                    truncated) else truncated
             worksheet[f'A{current_row}'] = f"LCL: {formatted_lcl}s"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # 11. Balancing Rate
         # Format to show at most 1 decimal place, truncating (not rounding), removing trailing zeros
         if calc['line_balancing_rate'] == int(calc['line_balancing_rate']):
             formatted_rate = int(calc['line_balancing_rate'])
         else:
             truncated = int(calc['line_balancing_rate'] * 10) / 10
-            formatted_rate = int(truncated) if truncated == int(truncated) else truncated
+            formatted_rate = int(truncated) if truncated == int(
+                truncated) else truncated
         worksheet[f'A{current_row}'] = f"Balancing Rate: {formatted_rate}%"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
@@ -904,16 +1104,18 @@ def export(format: str, session_id: str):
             formatted_delay = int(calc['balance_delay'])
         else:
             truncated = int(calc['balance_delay'] * 10) / 10
-            formatted_delay = int(truncated) if truncated == int(truncated) else truncated
+            formatted_delay = int(truncated) if truncated == int(
+                truncated) else truncated
         worksheet[f'A{current_row}'] = f"Balance Delay: {formatted_delay}%"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 13. Smoothing Index
-        worksheet[f'A{current_row}'] = f"Smoothing Index: {calc['smoothing_index']:.2f} min"
+        worksheet[
+            f'A{current_row}'] = f"Smoothing Index: {calc['smoothing_index']:.2f} min"
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
-        
+
         # 14. Target (If available)
         target_before = calc.get('target_before')
         target_after = calc.get('target_after')
@@ -923,44 +1125,59 @@ def export(format: str, session_id: str):
                 formatted_target_before = int(target_before)
             else:
                 truncated = int(target_before * 100) / 100
-                formatted_target_before = int(truncated) if truncated == int(truncated) else truncated
-            
+                formatted_target_before = int(truncated) if truncated == int(
+                    truncated) else truncated
+
             if target_after == int(target_after):
                 formatted_target_after = int(target_after)
             else:
                 truncated = int(target_after * 100) / 100
-                formatted_target_after = int(truncated) if truncated == int(truncated) else truncated
-            
-            worksheet[f'A{current_row}'] = f"Target (Before): {formatted_target_before} units"
+                formatted_target_after = int(truncated) if truncated == int(
+                    truncated) else truncated
+
+            worksheet[
+                f'A{current_row}'] = f"Target (Before): {formatted_target_before} units"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-            
-            worksheet[f'A{current_row}'] = f"Target (After): {formatted_target_after} units"
+
+            worksheet[
+                f'A{current_row}'] = f"Target (After): {formatted_target_after} units"
             worksheet[f'A{current_row}'].font = Font(bold=True)
             current_row += 1
-        
+
         # Set start_row for data table (add one row spacing after metrics)
         start_row = current_row + 1
-        
+
         # Write headers
         headers = list(df.columns)
         for col_idx, header in enumerate(headers, 1):
             cell = worksheet.cell(row=start_row, column=col_idx, value=header)
             cell.font = Font(bold=True, size=11)
-            cell.fill = PatternFill(start_color="E8EDF4", end_color="E8EDF4", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        
+            cell.fill = PatternFill(start_color="E8EDF4",
+                                    end_color="E8EDF4",
+                                    fill_type="solid")
+            cell.alignment = Alignment(horizontal="center",
+                                       vertical="center",
+                                       wrap_text=True)
+
         # Write data
-        for row_idx, row in enumerate(df.itertuples(index=False), start_row + 1):
+        for row_idx, row in enumerate(df.itertuples(index=False),
+                                      start_row + 1):
             for col_idx, value in enumerate(row, 1):
                 cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                
+                cell.alignment = Alignment(horizontal="center",
+                                           vertical="center",
+                                           wrap_text=True)
+
                 # Format numeric values - but keep workstation identifiers as whole numbers
                 if isinstance(value, (int, float)):
                     header_name = headers[col_idx - 1]
                     # For specified columns, truncate to 1 decimal place (not rounding) and remove trailing zeros
-                    if header_name in ['Combined Basic Time', 'Balancing SAM', 'Pitch Time', 'Takt Time', 'Pitch Time (Auto)', 'UCL', 'LCL']:
+                    if header_name in [
+                            'Combined Basic Time', 'Balancing SAM',
+                            'Pitch Time', 'Takt Time', 'Pitch Time (Auto)',
+                            'UCL', 'LCL'
+                    ]:
                         if value == int(value):
                             cell.value = int(value)
                             cell.number_format = '0'  # No decimal for whole numbers
@@ -972,11 +1189,12 @@ def export(format: str, session_id: str):
                             else:
                                 cell.value = truncated_value
                                 cell.number_format = '0.0'  # Show 1 decimal place
-                    elif header_name == 'Workstation' or isinstance(value, int):
+                    elif header_name == 'Workstation' or isinstance(
+                            value, int):
                         cell.number_format = '0'  # No decimal for workstation identifiers and integers
                     else:
                         cell.number_format = '0.1'  # One decimal for other numeric values
-        
+
         # Auto-adjust column widths for data columns only
         for col_idx in range(1, len(headers) + 1):
             max_length = 0
@@ -987,48 +1205,54 @@ def export(format: str, session_id: str):
                         max_length = len(str(cell.value))
                 except:
                     pass
-            adjusted_width = min(max_length + 2, 30)  # Cap at 30 to prevent overly wide columns
-            worksheet.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
-        
+            adjusted_width = min(
+                max_length + 2, 30)  # Cap at 30 to prevent overly wide columns
+            worksheet.column_dimensions[get_column_letter(
+                col_idx)].width = adjusted_width
+
         # Insert chart images after the data table
         chart_row = start_row + len(df) + 3  # 3 rows gap after data table
-        
+
         # Add Before Balancing Chart title
         worksheet[f'A{chart_row}'] = "Before Balancing Chart"
-        worksheet[f'A{chart_row}'].font = Font(size=12, bold=True, color="3B82F6")
+        worksheet[f'A{chart_row}'].font = Font(size=12,
+                                               bold=True,
+                                               color="3B82F6")
         chart_row += 1
-        
+
         # Add Before Balancing Chart
         before_img = Image(before_chart_img)
         before_img.width = 800
         before_img.height = 400
         worksheet.add_image(before_img, f'A{chart_row}')
-        
+
         # Move down for After Balancing Chart (approximately 25 rows for the chart image)
         chart_row += 25
-        
+
         # Add After Balancing Chart title
         worksheet[f'A{chart_row}'] = "After Balancing Chart"
-        worksheet[f'A{chart_row}'].font = Font(size=12, bold=True, color="3B82F6")
+        worksheet[f'A{chart_row}'].font = Font(size=12,
+                                               bold=True,
+                                               color="3B82F6")
         chart_row += 1
-        
+
         # Add After Balancing Chart
         after_img = Image(after_chart_img)
         after_img.width = 800
         after_img.height = 400
         worksheet.add_image(after_img, f'A{chart_row}')
-        
+
         # Save to buffer
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        
+
         return send_file(
             buffer,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            mimetype=
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             as_attachment=True,
-            download_name=f"line_balance_{session_id}.xlsx"
-        )
+            download_name=f"line_balance_{session_id}.xlsx")
 
 
 @app.route("/api/recalculate", methods=["POST"])
@@ -1042,71 +1266,83 @@ def recalculate():
     tolerance = data.get("tolerance")
     efficiency_percentage = data.get("efficiency_percentage")
     available_time_minutes = data.get("available_time_minutes")
-    
+
     calc = get_calculation(session_id)
     if not calc:
         return jsonify({"error": "Session not found"}), 404
-    
+
     # Validate manual pitch time if provided
     if manual_pitch_time is not None:
         try:
             manual_pitch_time = float(manual_pitch_time)
             if manual_pitch_time <= 0:
-                return jsonify({"error": "Manual pitch time must be a positive number."}), 400
+                return jsonify(
+                    {"error":
+                     "Manual pitch time must be a positive number."}), 400
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid pitch time value."}), 400
-    
+
     # Validate production target and shift time if provided
     if production_target is not None:
         try:
             production_target = int(production_target)
             if production_target <= 0:
-                return jsonify({"error": "Production target must be a positive number."}), 400
+                return jsonify(
+                    {"error":
+                     "Production target must be a positive number."}), 400
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid production target value."}), 400
-    
+
     if shift_time_minutes is not None:
         try:
             shift_time_minutes = float(shift_time_minutes)
             if shift_time_minutes <= 0:
-                return jsonify({"error": "Shift time must be a positive number."}), 400
+                return jsonify(
+                    {"error": "Shift time must be a positive number."}), 400
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid shift time value."}), 400
-    
+
     # Validate efficiency if provided
     if efficiency_percentage is not None:
         try:
             efficiency_percentage = float(efficiency_percentage)
             if efficiency_percentage <= 0 or efficiency_percentage > 100:
-                return jsonify({"error": "Efficiency must be between 0 and 100%."}), 400
+                return jsonify(
+                    {"error": "Efficiency must be between 0 and 100%."}), 400
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid efficiency value."}), 400
-    
+
     # Validate available time if provided
     if available_time_minutes is not None:
         try:
             available_time_minutes = float(available_time_minutes)
             if available_time_minutes <= 0:
-                return jsonify({"error": "Available time must be a positive number."}), 400
+                return jsonify(
+                    {"error":
+                     "Available time must be a positive number."}), 400
             if available_time_minutes > 1440:
-                return jsonify({"error": "Available time must be less than 1440 minutes (24 hours)."}), 400
+                return jsonify({
+                    "error":
+                    "Available time must be less than 1440 minutes (24 hours)."
+                }), 400
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid available time value."}), 400
-    
+
     # Validate tolerance if provided (only for auto method)
     if tolerance is not None:
         try:
             tolerance = float(tolerance)
             if tolerance < 0 or tolerance > 100:
-                return jsonify({"error": "Tolerance must be between 0 and 100."}), 400
+                return jsonify(
+                    {"error": "Tolerance must be between 0 and 100."}), 400
             tolerance = tolerance / 100  # Convert percentage to decimal
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid tolerance value."}), 400
-    
+
     # Recalculate with new parameters if provided
     try:
         operations = calc["operations"]
-        
+
         # Determine pitch time method based on what parameters are provided
         if manual_pitch_time is not None:
             pitch_time_method = "manual"
@@ -1130,14 +1366,17 @@ def recalculate():
             # Use default tolerance if not provided
             if tolerance is None:
                 tolerance = calc.get("tolerance", 0.15)
-        
-        result = calculate_balance(operations, tolerance, manual_pitch_time, production_target, shift_time_minutes, pitch_time_method, efficiency_percentage, available_time_minutes)
-        
+
+        result = calculate_balance(operations, tolerance, manual_pitch_time,
+                                   production_target, shift_time_minutes,
+                                   pitch_time_method, efficiency_percentage,
+                                   available_time_minutes)
+
         # Update session with new calculation
         store_calculation(session_id, result)
-        
+
         response_data = {
-            "status": "ok", 
+            "status": "ok",
             "result": {
                 "pitch_time": result["pitch_time"],
                 "pitch_time_source": result["pitch_time_source"],
@@ -1158,17 +1397,21 @@ def recalculate():
             },
             "before_metrics": result["before_metrics"]
         }
-        
+
         # Only add tolerance and line_efficiency for auto method
         if result["line_efficiency"] is not None:
-            response_data["result"]["line_efficiency"] = result["line_efficiency"]
-        
+            response_data["result"]["line_efficiency"] = result[
+                "line_efficiency"]
+
         if result.get("pitch_time_source") == "By Target":
             response_data["result"]["demand_met"] = result.get("demand_met")
-            response_data["result"]["target_validation_message"] = result.get("target_validation_message")
-            response_data["result"]["target_recheck_messages"] = result.get("target_recheck_messages", [])
-            response_data["result"]["target_recheck_summary"] = result.get("target_recheck_summary")
-        
+            response_data["result"]["target_validation_message"] = result.get(
+                "target_validation_message")
+            response_data["result"]["target_recheck_messages"] = result.get(
+                "target_recheck_messages", [])
+            response_data["result"]["target_recheck_summary"] = result.get(
+                "target_recheck_summary")
+
         return jsonify(response_data)
     except Exception as e:
         return jsonify({"error": f"Recalculation failed: {str(e)}"}), 500
@@ -1179,25 +1422,30 @@ def get_chart_data(session_id: str):
     """Get chart data for the home view."""
     print(f"API request for session: {session_id}")
     print(f"Available sessions: {list(SESSIONS.keys())}")
-    
+
     try:
         calc = get_calculation(session_id)
         if not calc:
-            return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
-        
+            return jsonify({
+                "error":
+                "Session not found",
+                "message":
+                "The calculation session has expired. Please reload the data from the home page."
+            }), 404
+
         # Extract workstation data
         workstations = calc["workstations"]
         pitch_time = calc["pitch_time"]
         ucl = calc["ucl"]
         lcl = calc["lcl"]
-        
+
         # Prepare data for chart with operation names for each workstation
         workstation_names = []
         for ws in workstations:
             # Join operation names with " + " for each workstation
             op_names = " + ".join(op.name for op in ws.operations)
             workstation_names.append(op_names)
-        
+
         chart_data = {
             "workstations": workstation_names,
             "balancing_sam": [ws.balancing_sam for ws in workstations],
@@ -1210,26 +1458,28 @@ def get_chart_data(session_id: str):
             "production_target": calc.get("production_target"),
             "shift_time_minutes": calc.get("shift_time_minutes"),
         }
-        
+
         # Only include UCL/LCL and tolerance for auto method
         if calc.get("pitch_time_source") == "calculated":
             chart_data["ucl"] = ucl
             chart_data["lcl"] = lcl
             tolerance = calc.get("tolerance", 0.15)
             if tolerance is not None:
-                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+                chart_data[
+                    "tolerance"] = tolerance * 100  # Convert to percentage for display
         elif calc.get("pitch_time_source") == "By Target":
             # For By Target method, include auto-computed values
             chart_data["ucl"] = ucl
             chart_data["lcl"] = lcl
             tolerance = calc.get("tolerance", 0.15)
             if tolerance is not None:
-                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+                chart_data[
+                    "tolerance"] = tolerance * 100  # Convert to percentage for display
             chart_data["auto_pitch_time"] = calc.get("auto_pitch_time")
-        
+
         if calc.get("line_efficiency") is not None:
             chart_data["line_efficiency"] = calc["line_efficiency"]
-        
+
         return jsonify(chart_data)
     except Exception as e:
         print(f"Error in get_chart_data: {str(e)}")
@@ -1242,56 +1492,73 @@ def get_chart_data(session_id: str):
 def get_before_chart_data(session_id: str):
     """Get before balancing chart data for the home view."""
     print(f"API request for before chart session: {session_id}")
-    
+
     try:
         calc = get_calculation(session_id)
         if not calc:
-            return jsonify({"error": "Session not found", "message": "The calculation session has expired. Please reload the data from the home page."}), 404
-        
+            return jsonify({
+                "error":
+                "Session not found",
+                "message":
+                "The calculation session has expired. Please reload the data from the home page."
+            }), 404
+
         # Extract before balancing metrics
         before_metrics = calc["before_metrics"]
         operations = calc["sorted_operations"]
-        
+
         # Prepare data for chart with operation names and basic times
         operation_names = [op.name for op in operations]
         basic_times = [op.basic_time for op in operations]
-        
+
         chart_data = {
-            "operations": operation_names,
-            "basic_times": basic_times,
-            "pitch_time": before_metrics["pitch_time"],
-            "pitch_time_source": before_metrics.get("pitch_time_source", "calculated"),
-            "balancing_rate": before_metrics["balancing_rate"],
-            "balance_delay": before_metrics["balance_delay"],
-            "smoothing_index": before_metrics["smoothing_index"],
-            "total_basic_time": before_metrics["total_basic_time"],
+            "operations":
+            operation_names,
+            "basic_times":
+            basic_times,
+            "pitch_time":
+            before_metrics["pitch_time"],
+            "pitch_time_source":
+            before_metrics.get("pitch_time_source", "calculated"),
+            "balancing_rate":
+            before_metrics["balancing_rate"],
+            "balance_delay":
+            before_metrics["balance_delay"],
+            "smoothing_index":
+            before_metrics["smoothing_index"],
+            "total_basic_time":
+            before_metrics["total_basic_time"],
         }
-        
+
         # Only include UCL/LCL and tolerance for auto method
         if before_metrics.get("pitch_time_source") == "calculated":
             chart_data["ucl"] = before_metrics["ucl"]
             chart_data["lcl"] = before_metrics["lcl"]
             tolerance = before_metrics.get("tolerance", 0.15)
             if tolerance is not None:
-                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
+                chart_data[
+                    "tolerance"] = tolerance * 100  # Convert to percentage for display
         elif before_metrics.get("pitch_time_source") == "By Target":
             # For By Target method, include auto-computed values
             chart_data["ucl"] = before_metrics["ucl"]
             chart_data["lcl"] = before_metrics["lcl"]
             tolerance = before_metrics.get("tolerance", 0.15)
             if tolerance is not None:
-                chart_data["tolerance"] = tolerance * 100  # Convert to percentage for display
-            chart_data["auto_pitch_time"] = before_metrics.get("auto_pitch_time")
-        
+                chart_data[
+                    "tolerance"] = tolerance * 100  # Convert to percentage for display
+            chart_data["auto_pitch_time"] = before_metrics.get(
+                "auto_pitch_time")
+
         if before_metrics.get("line_efficiency") is not None:
             chart_data["line_efficiency"] = before_metrics["line_efficiency"]
-        
+
         return jsonify(chart_data)
     except Exception as e:
         print(f"Error in get_before_chart_data: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": f"Failed to load before chart data: {str(e)}"}), 500
+        return jsonify(
+            {"error": f"Failed to load before chart data: {str(e)}"}), 500
 
 
 @app.route("/layout")
@@ -1307,7 +1574,7 @@ def layout(session_id: str = None):
                 # Convert dataframe to list of dicts for template
                 df = calc["report_df"]
                 rows = df.to_dict("records")
-                
+
                 # Format numeric values
                 for row in rows:
                     row["Combined Basic Time"] = f"{row['Combined Basic Time']:.1f}"
@@ -1317,7 +1584,8 @@ def layout(session_id: str = None):
                         row["Pitch Time"] = f"{row['Pitch Time']:.1f}"
                     elif "Takt Time" in row and row["Takt Time"]:
                         row["Takt Time"] = f"{row['Takt Time']:.1f}"
-                    elif "Pitch Time (Auto)" in row and row["Pitch Time (Auto)"]:
+                    elif "Pitch Time (Auto)" in row and row[
+                            "Pitch Time (Auto)"]:
                         row["Pitch Time (Auto)"] = f"{row['Pitch Time (Auto)']:.1f}"
                     if row.get("UCL"):
                         row["UCL"] = f"{row['UCL']:.1f}"
@@ -1329,8 +1597,12 @@ def layout(session_id: str = None):
             traceback.print_exc()
             calc = None
             rows = []
-    
-    return render_template_string(LAYOUT_TEMPLATE, session_id=session_id, has_data=calc is not None, result=calc, rows=rows)
+
+    return render_template_string(LAYOUT_TEMPLATE,
+                                  session_id=session_id,
+                                  has_data=calc is not None,
+                                  result=calc,
+                                  rows=rows)
 
 
 # ============== HTML TEMPLATES ==============
@@ -1877,83 +2149,44 @@ LAYOUT_TEMPLATE = """
             </div>
         </div>
 
-        {% if result.pitch_time_source == "By Target" and result.target_validation_message %}
-        <div class="target-workflow-notice-container">
-            <!-- Step 2 Validation Banner -->
-            <div class="target-validation-banner {% if result.demand_met %}success{% else %}warning{% endif %}">
-                {% if result.demand_met %}
-                <svg xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {% else %}
-                <svg xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                {% endif %}
-                <div>
-                    <strong>Demand Target Validation:</strong> {{ result.target_validation_message }}
-                </div>
-            </div>
-
-            <!-- Step 4 Recheck Summary Banner -->
-            {% if result.target_recheck_summary %}
-            <div class="target-recheck-banner">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" style="width: 18px; height: 18px; color: var(--accent); flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span><strong>Balancing Status:</strong> {{ result.target_recheck_summary }}</span>
-                </div>
-                {% if result.target_recheck_messages and result.target_recheck_messages|length > 1 %}
-                <details style="cursor: pointer; font-size: 12px; color: var(--text-muted);">
-                    <summary>View {{ result.target_recheck_messages|length }} attempts</summary>
-                    <ul style="margin-top: 8px; padding-left: 20px; color: var(--text-muted);">
-                        {% for msg in result.target_recheck_messages %}
-                        <li>{{ msg }}</li>
-                        {% endfor %}
-                    </ul>
-                </details>
-                {% endif %}
-            </div>
-            {% endif %}
-        </div>
-        {% endif %}
-
         <div class="metrics-grid">
             {% if result.production_target %}
             <div class="metric-card">
-                <div class="label">Customer Demand<br></div>
+                <div class="label">Customer Demand</div>
                 <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
             </div>
             {% endif %}
             {% if result.shift_time_minutes %}
             <div class="metric-card">
-                <div class="label">Available Time<br><br></div>
+                <div class="label">Available Time</div>
                 <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
             {% endif %}
             {% if result.efficiency_percentage and result.available_time_minutes %}
             <div class="metric-card">
-                <div class="label">Required Efficiency<br><br></div>
+                <div class="label">Required Efficiency</div>
                 <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
             </div>
             {% endif %}
             <div class="metric-card">
-                <div class="label">Composite Operations<br></div>
+                <div class="label">Composite Operations</div>
                 <div class="value">{{ result.workstations|length }}</div>
             </div>
             <div class="metric-card">
-                <div class="label">SAM<br><br></div>
+                <div class="label">SAM<br></div>
                 <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">Manpower<br><br></div>
+                <div class="label">Manpower<br></div>
                 <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
             </div>
+        </div>
+
+        <div class="metrics-grid">
             <div class="metric-card">
-                <div class="label">{% if result.pitch_time_source == "manual" %}Takt Time<br><br>{% elif result.pitch_time_source == "By Target" %}Takt Time<br><br>{% else %}Pitch Time<br><br>{% endif %}</div>
+                <div class="label">{% if result.pitch_time_source == "manual" %}Takt Time{% elif result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
                 <div class="value">
-                    {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
+                    {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
                     {% if result.pitch_time_source == "manual" %}
                     <span class="pitch-source-badge manual">Manual</span>
                     {% elif result.pitch_time_source == "By Target" %}
@@ -1965,13 +2198,15 @@ LAYOUT_TEMPLATE = """
             </div>
             {% if result.pitch_time_source == "By Target" and result.auto_pitch_time is defined %}
             <div class="metric-card">
-                <div class="label">Pitch Time (Auto)<br><br></div>
-                <div class="value">{{ "%.1f"|format(result.auto_pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                <div class="label">Pitch Time</div>
+                <div class="value">{{ "%.1f"|format(result.auto_pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
+                    <span class="pitch-source-badge auto">Auto</span>
+                </div>
             </div>
             {% endif %}
             {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
             <div class="metric-card">
-                <div class="label">Tolerance<br><br></div>
+                <div class="label">Tolerance</div>
                 <div class="value">
                     {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
                     {% if result.tolerance * 100 != 15.0 %}
@@ -1980,15 +2215,16 @@ LAYOUT_TEMPLATE = """
                 </div>
             </div>
             <div class="metric-card">
-                <div class="label">UCL<br><br></div>
-                <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                <div class="label">UCL</div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">LCL<br><br></div>
-                <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
+                <div class="label">LCL</div>
+                <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
             </div>
             {% endif %}
         </div>
+
 
         <div class="table-section">
             <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;">Line Balancing Report</h3>
@@ -3076,24 +3312,6 @@ HTML_TEMPLATE = """
 
         {% if result %}
         <section class="results-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Calculation Results</h3>
-                <div class="export-buttons">
-                    <button class="export-button" onclick="window.location.href='/layout/{{ session_id }}'">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-                        View Layout
-                    </button>
-                    <button class="export-button" onclick="exportFile('xlsx', '{{ session_id }}')">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Export Report
-                    </button>
-                </div>
-            </div>
-            
             {% if result.pitch_time_source == "By Target" and result.target_validation_message %}
             <div class="target-workflow-notice-container" id="targetWorkflowNoticeContainer">
                 <!-- Step 2 Validation Banner -->
@@ -3111,8 +3329,104 @@ HTML_TEMPLATE = """
                         <strong>Demand Target Validation:</strong> <span id="targetValidationText">{{ result.target_validation_message }}</span>
                     </div>
                 </div>
+            </div>
+            {% endif %}
 
-                <!-- Step 4 Recheck Summary Banner -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">Calculation Results</h3>
+            </div>
+            <!-- Constant Metrics (shown immediately) -->
+            <div class="metrics-grid">
+                {% if result.production_target %}
+                <div class="metric-card">
+                    <div class="label">Customer Demand<br></div>
+                    <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
+                </div>
+                {% endif %}
+                {% if result.shift_time_minutes %}
+                <div class="metric-card">
+                    <div class="label">Available Time<br><br></div>
+                    <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% endif %}
+                {% if result.efficiency_percentage and result.available_time_minutes %}
+                <div class="metric-card">
+                    <div class="label">Required Efficiency<br><br></div>
+                    <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+                </div>
+                {% endif %}
+                <div class="metric-card">
+                    <div class="label">SAM<br><br></div>
+                    <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+                </div>
+                {% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}
+                <div class="metric-card">
+                    <div class="label">Takt Time<br><br></div>
+                    <div class="value">
+                        {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
+                        {% if result.pitch_time_source == "manual" %}
+                        <span class="pitch-source-badge manual">Manual</span>
+                        {% elif result.pitch_time_source == "By Target" %}
+                        <span class="pitch-source-badge target">By Target</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="metric-card balancing-constant-metric" style="display: none;">
+                    <div class="label">Pitch Time<br><br></div>
+                    <div class="value">
+                        {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
+                        <span class="pitch-source-badge auto">Auto</span>
+                    </div>
+                </div>
+                {% endif %}
+            {% if result.pitch_time_source == "By Target" and result.auto_pitch_time is defined %}
+            <div class="metric-card balancing-constant-metric" style="display: none;">
+                <div class="label">Pitch Time<br><br></div>
+                <div class="value">{{ "%.1f"|format(result.auto_pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
+                <span class="pitch-source-badge auto">Auto</span>
+                </div>
+            </div>
+            {% endif %}
+            {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
+            <div class="metric-card balancing-constant-metric" style="display: none;">
+                <div class="label">Tolerance<br><br></div>
+                <div class="value">
+                    {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
+                    {% if result.tolerance * 100 != 15.0 %}
+                    <span class="tolerance-badge manual">Manual</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card balancing-constant-metric" style="display: none;">
+                <div class="label">UCL<br><br></div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
+            </div>
+            <div class="metric-card balancing-constant-metric" style="display: none;">
+                <div class="label">LCL<br><br></div>
+                <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
+            </div>
+            {% endif %}
+            </div>
+
+            <!-- Show Balancing Results Button -->
+            <div style="margin-top: 24px; margin-bottom: 24px;">
+                <button type="button" id="showBalancingResultsBtn" onclick="showBalancingResults()" class="chart-button" style="width: auto; padding: 12px 24px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    Balancing Results
+                </button>
+            </div>
+
+            <!-- Balancing Results (hidden by default, shown on button click) -->
+            <div id="balancingResults" style="display: none;">
+                <!-- Side-by-side comparison metrics table -->
+                <div class="comparison-section">
+
+            {% if result.pitch_time_source == "By Target" and result.target_validation_message %}
+            <div class="target-workflow-notice-container" id="targetWorkflowNoticeContainer">   
+                 <!-- Step 4 Recheck Summary Banner -->
                 {% if result.target_recheck_summary %}
                 <div class="target-recheck-banner" id="targetRecheckBanner">
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -3132,84 +3446,27 @@ HTML_TEMPLATE = """
                     </details>
                     {% endif %}
                 </div>
-                {% endif %}
+                {% endif %}                 
             </div>
             {% endif %}
-
-            <!-- Constant Metrics (shown immediately) -->
-            <div class="metrics-grid">
-                {% if result.production_target %}
-                <div class="metric-card">
-                    <div class="label">Customer Demand<br></div>
-                    <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
-                </div>
-                {% endif %}
-                {% if result.shift_time_minutes %}
-                <div class="metric-card">
-                    <div class="label">Available Time<br></div>
-                    <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-                {% endif %}
-                {% if result.efficiency_percentage and result.available_time_minutes %}
-                <div class="metric-card">
-                    <div class="label">Required Efficiency<br></div>
-                    <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-                </div>
-                {% endif %}
-                <div class="metric-card">
-                    <div class="label">SAM<br></div>
-                    <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}Takt Time<br>{% else %}Pitch Time<br>{% endif %}</div>
-                    <div class="value">
-                        {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">s</span>
-                        {% if result.pitch_time_source == "manual" %}
-                        <span class="pitch-source-badge manual">Manual</span>
-                        {% elif result.pitch_time_source == "By Target" %}
-                        <span class="pitch-source-badge target">By Target</span>
-                        {% else %}
-                        <span class="pitch-source-badge auto">Auto</span>
-                        {% endif %}
-                    </div>
-                </div>
-                {% if result.pitch_time_source == "calculated" %}
-                <div class="metric-card">
-                    <div class="label">Tolerance<br></div>
-                    <div class="value">
-                        {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
-                        {% if result.tolerance * 100 != 15.0 %}
-                        <span class="tolerance-badge manual">Manual</span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">UCL<br></div>
-                    <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
-                </div>
-                <div class="metric-card">
-                    <div class="label">LCL<br></div>
-                    <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">s</span></div>
-                </div>
-                {% endif %}
-            </div>
-
-            <!-- Show Balancing Results Button -->
-            <div style="margin-top: 24px; margin-bottom: 24px;">
-                <button type="button" id="showBalancingResultsBtn" onclick="showBalancingResults()" class="chart-button" style="width: auto; padding: 12px 24px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                    Balancing Results
-                </button>
-            </div>
-
-            <!-- Balancing Results (hidden by default, shown on button click) -->
-            <div id="balancingResults" style="display: none;">
-                <!-- Side-by-side comparison metrics table -->
-                <div class="comparison-section">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; margin-top: 32px;">Before vs After Comparison</h3>
-                    
+                <div class="export-buttons">
+                    <button class="export-button" onclick="window.location.href='/layout/{{ session_id }}'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                        View Layout
+                    </button>
+                    <button class="export-button" onclick="exportFile('xlsx', '{{ session_id }}')">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Export Report
+                    </button>
+                </div>
+                </div>
+
                     <div class="comparison-table-wrapper">
                         <table class="comparison-table">
                             <thead>
@@ -3487,6 +3744,11 @@ HTML_TEMPLATE = """
                 resultsSection.style.display = 'none';
             }
             
+            // Hide constant metric cards
+            document.querySelectorAll('.balancing-constant-metric').forEach(el => {
+                el.style.display = 'none';
+            });
+            
             // Reset button to show state
             const button = document.getElementById('showBalancingResultsBtn');
             if (button) {
@@ -3541,6 +3803,11 @@ HTML_TEMPLATE = """
             if (resultsSection) {
                 resultsSection.style.display = 'block';
                 
+                // Show constant metric cards
+                document.querySelectorAll('.balancing-constant-metric').forEach(el => {
+                    el.style.display = '';
+                });
+
                 // Update button to hide results
                 button.innerHTML = `
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -3565,6 +3832,11 @@ HTML_TEMPLATE = """
             if (resultsSection) {
                 resultsSection.style.display = 'none';
                 
+                // Hide constant metric cards
+                document.querySelectorAll('.balancing-constant-metric').forEach(el => {
+                    el.style.display = 'none';
+                });
+
                 // Update button to show results
                 button.innerHTML = `
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
