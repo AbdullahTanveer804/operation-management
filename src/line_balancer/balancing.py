@@ -25,12 +25,7 @@ For each operation in ID order:
 """
 
 from typing import List
-
-if __package__ in {None, ""}:
-    from models import Operation, Workstation
-else:
-    from .models import Operation, Workstation
-
+from .models import Operation, Workstation
 
 # Helper-machines: special categories that can combine with any machine type
 HELPER_MACHINES = {"By Hand", "Pointer", "Pencil", "Clipper", "Press"}
@@ -70,15 +65,15 @@ def can_combine_machine_types(machine_type1: str, machine_type2: str) -> bool:
     # If both are the same machine type, they can always combine
     if machine_type1 == machine_type2:
         return True
-    
+
     # Check if either is a helper-machine
     is_helper1 = machine_type1 in HELPER_MACHINES
     is_helper2 = machine_type2 in HELPER_MACHINES
-    
+
     # If both are helper-machines, they can combine
     if is_helper1 and is_helper2:
         return True
-    
+
     # If one is a helper-machine and the other is not
     if is_helper1 or is_helper2:
         # Press has special restriction: can ONLY combine with helper-machines
@@ -86,12 +81,13 @@ def can_combine_machine_types(machine_type1: str, machine_type2: str) -> bool:
             # Press can only combine if the OTHER is also a helper-machine
             return is_helper1 and is_helper2  # Both must be helpers
         return True
-    
+
     # Both are regular machine types but different - cannot combine
     return False
 
 
-def check_predecessor_constraint(op1: Operation, op2: Operation, already_grouped_ids: set) -> bool:
+def check_predecessor_constraint(op1: Operation, op2: Operation,
+                                 already_grouped_ids: set) -> bool:
     """
     Check if two operations can be combined together.
     
@@ -109,22 +105,20 @@ def check_predecessor_constraint(op1: Operation, op2: Operation, already_grouped
     """
     # Get all predecessor IDs from both operations
     all_predecessors = set(op1.predecessors) | set(op2.predecessors)
-    
+
     # For each predecessor, check if it's already grouped OR is one of these two ops
     for pred_id in all_predecessors:
         if pred_id not in already_grouped_ids and pred_id != op1.op_id and pred_id != op2.op_id:
             # This predecessor is not yet grouped and it's not one of the current ops
             # So we cannot combine these two operations yet
             return False
-    
+
     return True
 
 
-def find_compatible_operations(
-    current_op: Operation,
-    all_operations: List[Operation],
-    already_grouped_ids: set
-) -> List[Operation]:
+def find_compatible_operations(current_op: Operation,
+                               all_operations: List[Operation],
+                               already_grouped_ids: set) -> List[Operation]:
     """
     Find all operations that could be combined with current_op.
     
@@ -142,28 +136,34 @@ def find_compatible_operations(
         List of compatible operations
     """
     compatible = []
-    
+
     for other_op in all_operations:
         # Skip the current operation itself
         if other_op.op_id == current_op.op_id:
             continue
-        
+
         # Skip if already grouped
         if other_op.op_id in already_grouped_ids:
             continue
-        
+
         # Must have compatible machine types (helper-machine rules)
-        if not can_combine_machine_types(current_op.machine_type, other_op.machine_type):
+        if not can_combine_machine_types(current_op.machine_type,
+                                         other_op.machine_type):
             continue
-        
+
         # Must satisfy predecessor constraints
-        if check_predecessor_constraint(current_op, other_op, already_grouped_ids):
+        if check_predecessor_constraint(current_op, other_op,
+                                        already_grouped_ids):
             compatible.append(other_op)
-    
+
     return compatible
 
 
-def find_best_manpower_split(time_value: float, ucl: float, lcl: float, max_operators: int = 10, strict: bool = False):
+def find_best_manpower_split(time_value: float,
+                             ucl: float,
+                             lcl: float,
+                             max_operators: int = 10,
+                             strict: bool = False):
     """
     Find how many operators are needed to make this time acceptable.
     
@@ -189,26 +189,29 @@ def find_best_manpower_split(time_value: float, ucl: float, lcl: float, max_oper
     if target is None:
         # No target specified, return as-is
         return 1, time_value
-    
+
     # 0.5s flexibility only for auto method; strict mode uses exact target
     target_with_flexibility = target if strict else target + 0.5
-    
+
     # If already at or below target (with flexibility), no splitting needed
     if time_value <= target_with_flexibility:
         return 1, time_value
-    
+
     # Keep increasing manpower until time/manpower <= target (with flexibility)
     for manpower in range(2, max_operators + 1):
         time_per_op = time_value / manpower
-        
+
         if time_per_op <= target_with_flexibility:
             return manpower, time_per_op
-    
+
     # If we hit max_operators and still above target, return the best we found
     return max_operators, time_value / max_operators
 
 
-def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float, strict: bool = False) -> List[Workstation]:
+def group_and_balance(sorted_operations: List[Operation],
+                      ucl: float,
+                      lcl: float,
+                      strict: bool = False) -> List[Workstation]:
     """
     Process operations in Serial No. order and assign them to workstations,
     combining operations and adjusting manpower as needed to stay within
@@ -224,67 +227,63 @@ def group_and_balance(sorted_operations: List[Operation], ucl: float, lcl: float
     """
     workstations: List[Workstation] = []
     already_grouped_ids: set = set()
-    
+
     # Process each operation in order
     for current_op in sorted_operations:
         # Skip if already assigned to a workstation
         if current_op.op_id in already_grouped_ids:
             continue
-        
+
         # ===== STEP 1: Check if operation is already within acceptable range =====
         if is_within_range(current_op.basic_time, ucl, lcl):
             # It's fine as-is: create a workstation with just this operation
-            ws = Workstation(
-                operations=[current_op],
-                manpower=1,
-                balancing_sam=current_op.basic_time
-            )
+            ws = Workstation(operations=[current_op],
+                             manpower=1,
+                             balancing_sam=current_op.basic_time)
             workstations.append(ws)
             already_grouped_ids.add(current_op.op_id)
             continue
-        
+
         # ===== STEP 2: Operation is outside range, look for compatible operations =====
-        compatible_ops = find_compatible_operations(current_op, sorted_operations, already_grouped_ids)
-        
+        compatible_ops = find_compatible_operations(current_op,
+                                                    sorted_operations,
+                                                    already_grouped_ids)
+
         if compatible_ops:
             # ===== STEP 3a: Combine path (found compatible operation) =====
             # Take the first compatible operation and combine with it
             partner_op = compatible_ops[0]
             combined_time = current_op.basic_time + partner_op.basic_time
-            
+
             # Check if combined time is now acceptable
             if is_within_range(combined_time, ucl, lcl):
                 # Perfect! Combined time fits in the band
-                ws = Workstation(
-                    operations=[current_op, partner_op],
-                    manpower=1,
-                    balancing_sam=combined_time
-                )
+                ws = Workstation(operations=[current_op, partner_op],
+                                 manpower=1,
+                                 balancing_sam=combined_time)
                 workstations.append(ws)
                 already_grouped_ids.add(current_op.op_id)
                 already_grouped_ids.add(partner_op.op_id)
             else:
                 # Combined time is still outside the band
                 # Split across multiple operators
-                manpower, balancing_sam = find_best_manpower_split(combined_time, ucl, lcl, strict=strict)
-                ws = Workstation(
-                    operations=[current_op, partner_op],
-                    manpower=manpower,
-                    balancing_sam=balancing_sam
-                )
+                manpower, balancing_sam = find_best_manpower_split(
+                    combined_time, ucl, lcl, strict=strict)
+                ws = Workstation(operations=[current_op, partner_op],
+                                 manpower=manpower,
+                                 balancing_sam=balancing_sam)
                 workstations.append(ws)
                 already_grouped_ids.add(current_op.op_id)
                 already_grouped_ids.add(partner_op.op_id)
         else:
             # ===== STEP 3b: Standalone path (no compatible operation found) =====
             # Operation couldn't find a partner, try splitting it alone
-            manpower, balancing_sam = find_best_manpower_split(current_op.basic_time, ucl, lcl, strict=strict)
-            ws = Workstation(
-                operations=[current_op],
-                manpower=manpower,
-                balancing_sam=balancing_sam
-            )
+            manpower, balancing_sam = find_best_manpower_split(
+                current_op.basic_time, ucl, lcl, strict=strict)
+            ws = Workstation(operations=[current_op],
+                             manpower=manpower,
+                             balancing_sam=balancing_sam)
             workstations.append(ws)
             already_grouped_ids.add(current_op.op_id)
-    
+
     return workstations

@@ -9,11 +9,7 @@ combined in a way that violates its predecessor dependency).
 
 from typing import List
 from collections import defaultdict, deque
-
-if __package__ in {None, ""}:
-    from models import Operation
-else:
-    from .models import Operation
+from .models import Operation
 
 
 def sort_by_id(operations: List[Operation]) -> List[Operation]:

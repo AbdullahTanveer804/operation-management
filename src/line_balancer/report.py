@@ -8,13 +8,8 @@ Creates a formatted report showing all workstations with:
 """
 
 from typing import List
-
 import pandas as pd
-
-if __package__ in {None, ""}:
-    from models import Operation, Workstation
-else:
-    from .models import Operation, Workstation
+from .models import Operation, Workstation
 
 
 def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
@@ -39,7 +34,7 @@ def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
             return "> Target (review)"
         else:
             return "OK"
-    
+
     if balancing_sam > ucl:
         return "> UCL (review)"
     elif balancing_sam < lcl:
@@ -48,7 +43,12 @@ def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
         return "OK"
 
 
-def build_report_dataframe(workstations: List[Workstation], ucl: float = None, lcl: float = None, pitch_time: float = None, pitch_time_source: str = "calculated") -> pd.DataFrame:
+def build_report_dataframe(
+        workstations: List[Workstation],
+        ucl: float = None,
+        lcl: float = None,
+        pitch_time: float = None,
+        pitch_time_source: str = "calculated") -> pd.DataFrame:
     """
     Build a DataFrame report with all workstations and their details.
     
@@ -78,7 +78,7 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         DataFrame with formatted report data
     """
     rows = []
-    
+
     # Determine column name based on pitch time source
     if pitch_time_source == "manual":
         pitch_time_column_name = "Takt Time"
@@ -86,19 +86,21 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         pitch_time_column_name = "Pitch Time (Auto)"
     else:
         pitch_time_column_name = "Pitch Time"
-    
+
     # Check if UCL/LCL should be included (for auto and By Target methods)
-    include_ucl_lcl = (pitch_time_source == "calculated" or pitch_time_source == "By Target")
-    
+    include_ucl_lcl = (pitch_time_source == "calculated"
+                       or pitch_time_source == "By Target")
+
     for ws_num, ws in enumerate(workstations, start=1):
         # Build combined representations using " + " as separator
         op_ids = " + ".join(str(op.op_id) for op in ws.operations)
         op_names = " + ".join(op.name for op in ws.operations)
-        basic_times = " + ".join(f"{op.basic_time:.1f}" for op in ws.operations)
-        
+        basic_times = " + ".join(f"{op.basic_time:.1f}"
+                                 for op in ws.operations)
+
         # Build combined machine types
         machine_types = " + ".join(op.machine_type for op in ws.operations)
-        
+
         # Build combined predecessors (collect all predecessors from all operations)
         # Format: "1 + 18" for single op, or "19, 17 + 20" for multiple ops
         op_predecessor_groups = []
@@ -108,11 +110,12 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
                 op_preds = ", ".join(str(p) for p in sorted(op.predecessors))
                 op_predecessor_groups.append(op_preds)
         # Join different operation predecessor groups with ", "
-        predecessors = "+".join(op_predecessor_groups) if op_predecessor_groups else "-"
-        
+        predecessors = "+".join(
+            op_predecessor_groups) if op_predecessor_groups else "-"
+
         # Combined basic time (sum of all operations in this workstation)
         combined_basic_time = ws.combined_basic_time
-        
+
         # Determine status
         status = "OK"
         if include_ucl_lcl and ucl is not None and lcl is not None:
@@ -120,29 +123,40 @@ def build_report_dataframe(workstations: List[Workstation], ucl: float = None, l
         elif not include_ucl_lcl:
             # For manual method only, use pitch_time as target
             status = determine_status(ws.balancing_sam, pitch_time, pitch_time)
-        
+
         # Build row dictionary
         row = {
-            "Composite Operations": int(ws_num),  # Ensure workstation number is stored as integer
-            "Serial/Id": op_ids,
-            "Operations": op_names,
-            "Machine": machine_types,
-            "Predecessor": predecessors,
-            "Basic Time": basic_times,
-            "Combined Basic Time": round(combined_basic_time, 1),
-            "Balancing SAM": round(ws.balancing_sam, 1),
-            "M/P": ws.manpower,
-            pitch_time_column_name: round(pitch_time, 1) if pitch_time is not None else "",
-            "Status": status,
+            "Composite Operations":
+            int(ws_num),  # Ensure workstation number is stored as integer
+            "Serial/Id":
+            op_ids,
+            "Operations":
+            op_names,
+            "Machine":
+            machine_types,
+            "Predecessor":
+            predecessors,
+            "Basic Time":
+            basic_times,
+            "Combined Basic Time":
+            round(combined_basic_time, 1),
+            "Balancing SAM":
+            round(ws.balancing_sam, 1),
+            "M/P":
+            ws.manpower,
+            pitch_time_column_name:
+            round(pitch_time, 1) if pitch_time is not None else "",
+            "Status":
+            status,
         }
-        
+
         # Only add UCL/LCL columns for auto method
         if include_ucl_lcl:
             row["UCL"] = round(ucl, 1) if ucl is not None else ""
             row["LCL"] = round(lcl, 1) if lcl is not None else ""
-        
+
         rows.append(row)
-    
+
     df = pd.DataFrame(rows)
     # Ensure Workstation column is integer type
     df['Composite Operations'] = df['Composite Operations'].astype(int)
@@ -206,21 +220,27 @@ def print_summary(
         throughput_rate: Optional throughput rate in seconds (By Target)
         required_minutes: Optional required minutes (By Target)
     """
-    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time, pitch_time_source=pitch_time_source)
-    
+    df = build_report_dataframe(workstations,
+                                ucl=ucl,
+                                lcl=lcl,
+                                pitch_time=pitch_time,
+                                pitch_time_source=pitch_time_source)
+
     print("\n" + "=" * 120)
     print("LINE BALANCING RESULTS")
     print("=" * 120)
     print(df.to_string(index=False))
     print("-" * 120)
-    
+
     # Print metrics in the specified order
     if production_target is not None:
         print(f"Production Target: {production_target} units")
     if shift_time_minutes is not None:
         print(f"Shift Time: {shift_time_minutes:.1f} minutes")
     print(f"No. of Composite operations: {len(workstations)}")
-    print(f"Total Basic Time (SAM): {sum(op.basic_time for op in operations) / 60:.1f} min")
+    print(
+        f"Total Basic Time (SAM): {sum(op.basic_time for op in operations) / 60:.1f} min"
+    )
     if line_efficiency is not None:
         print(f"Line Efficiency%: {line_efficiency:.1f}%")
     print(f"Total ManPower: {sum(ws.manpower for ws in workstations)}")
@@ -250,7 +270,7 @@ def print_summary(
     if required_minutes is not None:
         print(f"Required Minutes: {required_minutes:.1f} min")
     print("=" * 120)
-    
+
     # Show any flagged operations
     if flagged_ops:
         print("\n⚠️  FLAGGED OPERATIONS (please review):")
@@ -259,7 +279,12 @@ def print_summary(
             print(f"    Error: {op.flagged}")
 
 
-def export_report(workstations: List[Workstation], filepath: str, pitch_time: float = None, ucl: float = None, lcl: float = None, pitch_time_source: str = "calculated") -> None:
+def export_report(workstations: List[Workstation],
+                  filepath: str,
+                  pitch_time: float = None,
+                  ucl: float = None,
+                  lcl: float = None,
+                  pitch_time_source: str = "calculated") -> None:
     """
     Export the report to an Excel file.
     
@@ -273,8 +298,12 @@ def export_report(workstations: List[Workstation], filepath: str, pitch_time: fl
         lcl: Lower Control Limit (optional, for column)
         pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
     """
-    df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time, pitch_time_source=pitch_time_source)
-    
+    df = build_report_dataframe(workstations,
+                                ucl=ucl,
+                                lcl=lcl,
+                                pitch_time=pitch_time,
+                                pitch_time_source=pitch_time_source)
+
     if filepath.lower().endswith(".xlsx"):
         df.to_excel(filepath, index=False)
     else:

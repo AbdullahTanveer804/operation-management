@@ -14,16 +14,13 @@ Frontend input is expected as percentage (e.g., 15) and should be converted to d
 """
 
 from typing import List, Tuple, Optional
-
-if __package__ in {None, ""}:
-    from models import Operation
-else:
-    from .models import Operation
+from .models import Operation
 
 DEFAULT_TOLERANCE = 0.15  # 15%, hard coded as per requirements
 
 
-def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float) -> float:
+def calculate_pitch_time_from_target(production_target: int,
+                                     shift_time_minutes: float) -> float:
     """
     Calculate Takt Time from production target and shift time.
     
@@ -42,13 +39,13 @@ def calculate_pitch_time_from_target(production_target: int, shift_time_minutes:
         raise ValueError("Production target must be a positive number.")
     if shift_time_minutes <= 0:
         raise ValueError("Shift time must be a positive number.")
-    
+
     # Calculate takt time in minutes
     takt_time_minutes = shift_time_minutes / production_target
-    
+
     # Convert to seconds for internal use
     takt_time_seconds = takt_time_minutes * 60
-    
+
     return takt_time_seconds
 
 
@@ -74,7 +71,9 @@ def calculate_before_pitch_time(operations: List[Operation]) -> float:
     return total_basic_time / count
 
 
-def calculate_before_tolerance_bands(pitch_time: float, tolerance: float = DEFAULT_TOLERANCE) -> Tuple[float, float]:
+def calculate_before_tolerance_bands(
+        pitch_time: float,
+        tolerance: float = DEFAULT_TOLERANCE) -> Tuple[float, float]:
     """
     Calculate UCL and LCL based on pitch time before balancing.
     
@@ -152,22 +151,23 @@ def calculate_before_balancing_rate(operations: List[Operation]) -> float:
     """
     if not operations:
         return 0.0
-    
+
     # Get all basic time values
     basic_times = [op.basic_time for op in operations]
-    
+
     # Find maximum basic time
     max_basic_time = max(basic_times)
-    
+
     # Calculate sum of differences
-    sum_of_differences = sum(max_basic_time - basic_time for basic_time in basic_times)
-    
+    sum_of_differences = sum(max_basic_time - basic_time
+                             for basic_time in basic_times)
+
     # Compute negative rate
     negative_rate = sum_of_differences / 60
-    
+
     # Compute final balance rate
     line_balancing_rate = 100 - negative_rate
-    
+
     return max(0.0, line_balancing_rate)  # Ensure non-negative
 
 
@@ -194,25 +194,25 @@ def calculate_before_line_efficiency(
     """
     if not operations or production_target <= 0 or shift_time_minutes <= 0:
         return 0.0
-    
+
     # Calculate total manpower (equals number of operations before balancing)
     total_manpower = len(operations)
-    
+
     # Calculate total basic time (SAM)
     total_basic_time = sum(op.basic_time for op in operations)
-    
+
     # Convert shift time from minutes to seconds
     shift_time_seconds = shift_time_minutes * 60
-    
+
     # Calculate line efficiency
     numerator = production_target * total_basic_time
     denominator = total_manpower * shift_time_seconds
-    
+
     if denominator == 0:
         return 0.0
-    
+
     line_efficiency = (numerator / denominator) * 100
-    
+
     return max(0.0, line_efficiency)  # Ensure non-negative
 
 
@@ -231,25 +231,25 @@ def calculate_before_balance_delay(operations: List[Operation]) -> float:
     """
     if not operations:
         return 0.0
-    
+
     # Calculate total manpower (equals number of operations before balancing)
     total_manpower = len(operations)
-    
+
     # Get maximum basic time (bottleneck)
     max_basic_time = max(op.basic_time for op in operations)
-    
+
     # Calculate total basic time (SAM)
     total_basic_time = sum(op.basic_time for op in operations)
-    
+
     # Calculate balance delay
     numerator = (total_manpower * max_basic_time) - total_basic_time
     denominator = total_manpower * max_basic_time
-    
+
     if denominator == 0:
         return 0.0
-    
+
     balance_delay = (numerator / denominator) * 100
-    
+
     return max(0.0, balance_delay)  # Ensure non-negative
 
 
@@ -276,22 +276,22 @@ def calculate_before_smoothing_index(operations: List[Operation]) -> float:
     """
     if not operations:
         return 0.0
-    
+
     # Get all basic time values and convert to minutes
     basic_time_minutes = [op.basic_time / 60 for op in operations]
-    
+
     # Find bottleneck (maximum basic time in minutes)
     bottleneck = max(basic_time_minutes)
-    
+
     # Calculate squared differences from bottleneck
-    squared_differences = [(bottleneck - sam) ** 2 for sam in basic_time_minutes]
-    
+    squared_differences = [(bottleneck - sam)**2 for sam in basic_time_minutes]
+
     # Sum all squared differences
     sum_squared_differences = sum(squared_differences)
-    
+
     # Take square root
-    smoothing_index = sum_squared_differences ** 0.5
-    
+    smoothing_index = sum_squared_differences**0.5
+
     return smoothing_index
 
 
@@ -333,18 +333,18 @@ def calculate_before_required_minutes(
     """
     if not operations or production_target <= 0 or line_efficiency is None or line_efficiency <= 0:
         return None
-    
+
     total_manpower = len(operations)
     if total_manpower <= 0:
         return None
-        
+
     sam_total_minutes = sum(op.basic_time for op in operations) / 60
     required_line_efficiency_fraction = line_efficiency / 100
     denominator = total_manpower * required_line_efficiency_fraction
-    
+
     if denominator <= 0:
         return None
-        
+
     return (production_target * sam_total_minutes) / denominator
 
 
@@ -377,14 +377,16 @@ def calculate_all_before_metrics(
     # Use default tolerance for auto method if not provided
     if pitch_time_method == "auto" and tolerance is None:
         tolerance = DEFAULT_TOLERANCE
-    
+
     # Initialize auto_pitch_time for By Target method
     auto_pitch_time = None
-    
+
     # Calculate time based on method
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
-            raise ValueError("Manual takt time must be provided and positive when method is 'manual'.")
+            raise ValueError(
+                "Manual takt time must be provided and positive when method is 'manual'."
+            )
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
         # Clear target-related parameters for manual method
@@ -395,17 +397,23 @@ def calculate_all_before_metrics(
         lcl = None
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
-            raise ValueError("Production target must be provided and positive when method is 'target'.")
+            raise ValueError(
+                "Production target must be provided and positive when method is 'target'."
+            )
         if shift_time_minutes is None or shift_time_minutes <= 0:
-            raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+            raise ValueError(
+                "Shift time must be provided and positive when method is 'target'."
+            )
+        takt_time = calculate_pitch_time_from_target(production_target,
+                                                     shift_time_minutes)
         pitch_time = takt_time
         pitch_time_source = "By Target"
         # Calculate auto pitch time and tolerance bands for display purposes
         auto_pitch_time = calculate_before_pitch_time(operations)
         if tolerance is None:
             tolerance = DEFAULT_TOLERANCE
-        auto_ucl, auto_lcl = calculate_before_tolerance_bands(auto_pitch_time, tolerance)
+        auto_ucl, auto_lcl = calculate_before_tolerance_bands(
+            auto_pitch_time, tolerance)
         # Use auto-computed values for display
         ucl = auto_ucl
         lcl = auto_lcl
@@ -417,29 +425,31 @@ def calculate_all_before_metrics(
         shift_time_minutes = None
         # Calculate tolerance bands for auto method
         ucl, lcl = calculate_before_tolerance_bands(pitch_time, tolerance)
-    
+
     # Calculate basic metrics
     num_operations = calculate_before_num_operations(operations)
     total_manpower = calculate_before_total_manpower(operations)
     total_basic_time = calculate_before_total_basic_time(operations)
-    
+
     # Calculate derived metrics
     balancing_rate = calculate_before_balancing_rate(operations)
     balance_delay = calculate_before_balance_delay(operations)
     smoothing_index = calculate_before_smoothing_index(operations)
-    
+
     # Calculate line efficiency if production target and shift time are provided and method is target
     line_efficiency = None
     if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
-        line_efficiency = calculate_before_line_efficiency(operations, production_target, shift_time_minutes)
-    
+        line_efficiency = calculate_before_line_efficiency(
+            operations, production_target, shift_time_minutes)
+
     # Calculate Throughput Rate and Required Minutes for By Target method
     throughput_rate = None
     required_minutes = None
     if pitch_time_method == "target":
         throughput_rate = calculate_before_throughput_rate(operations)
         if line_efficiency is not None:
-            required_minutes = calculate_before_required_minutes(operations, production_target, line_efficiency)
+            required_minutes = calculate_before_required_minutes(
+                operations, production_target, line_efficiency)
 
     # Calculate Target if both efficiency and available time are provided
     target = None
@@ -447,8 +457,10 @@ def calculate_all_before_metrics(
         # Target = (Efficiency% × Total Manpower × Available Time(minutes)) / Total Basic Time(SAM in Minutes)
         total_basic_time_minutes_for_target = total_basic_time / 60  # Convert to minutes
         if total_basic_time_minutes_for_target > 0:
-            target = (efficiency_percentage / 100 * total_manpower * available_time_minutes) / total_basic_time_minutes_for_target
-    
+            target = (
+                efficiency_percentage / 100 * total_manpower *
+                available_time_minutes) / total_basic_time_minutes_for_target
+
     # Calculate Labour Productivity
     # Labour Productivity = Production Target (Customer Demand) / Total Manpower
     # Use production_target if provided (target method), otherwise use calculated target
@@ -456,7 +468,7 @@ def calculate_all_before_metrics(
     target_for_productivity = production_target if production_target is not None else target
     if target_for_productivity is not None and total_manpower > 0:
         labour_productivity = target_for_productivity / total_manpower
-    
+
     # Build return dictionary
     result = {
         "pitch_time": pitch_time,
@@ -466,7 +478,8 @@ def calculate_all_before_metrics(
         "num_operations": num_operations,
         "total_manpower": total_manpower,
         "total_basic_time": total_basic_time,
-        "total_basic_time_minutes": total_basic_time / 60,  # Convert to minutes for display
+        "total_basic_time_minutes":
+        total_basic_time / 60,  # Convert to minutes for display
         "balancing_rate": balancing_rate,
         "line_efficiency": line_efficiency,
         "balance_delay": balance_delay,
@@ -476,13 +489,13 @@ def calculate_all_before_metrics(
         "throughput_rate": throughput_rate,
         "required_minutes": required_minutes,
     }
-    
+
     # Include tolerance for auto and By Target methods
     if pitch_time_source == "calculated" or pitch_time_source == "By Target":
         result["tolerance"] = tolerance
-    
+
     # For By Target method, also include auto-computed values for display
     if pitch_time_source == "By Target":
         result["auto_pitch_time"] = auto_pitch_time
-    
+
     return result

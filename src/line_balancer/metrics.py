@@ -8,11 +8,7 @@ When auto-calculated from operations, it's called "Pitch Time".
 """
 
 from typing import List, Optional, Tuple
-
-if __package__ in {None, ""}:
-    from models import Operation, Workstation
-else:
-    from .models import Operation, Workstation
+from .models import Operation, Workstation
 
 DEFAULT_TOLERANCE = 0.15  # 15%, matches factory standard
 
@@ -31,7 +27,8 @@ def calculate_pitch_time(operations: List[Operation]) -> float:
     return total_basic_time / count
 
 
-def calculate_pitch_time_from_target(production_target: int, shift_time_minutes: float) -> float:
+def calculate_pitch_time_from_target(production_target: int,
+                                     shift_time_minutes: float) -> float:
     """
     Calculate Takt Time from production target and shift time.
     
@@ -53,25 +50,25 @@ def calculate_pitch_time_from_target(production_target: int, shift_time_minutes:
         raise ValueError("Production target must be positive.")
     if shift_time_minutes <= 0:
         raise ValueError("Shift time must be positive.")
-    
+
     # Calculate takt time in minutes
     takt_time_minutes = shift_time_minutes / production_target
-    
+
     # Convert to seconds for internal use
     takt_time_seconds = takt_time_minutes * 60
-    
+
     return takt_time_seconds
 
 
-def calculate_tolerance_bands(pitch_time: float, tolerance: float = DEFAULT_TOLERANCE) -> Tuple[float, float]:
+def calculate_tolerance_bands(
+        pitch_time: float,
+        tolerance: float = DEFAULT_TOLERANCE) -> Tuple[float, float]:
     ucl = pitch_time + (pitch_time * tolerance)
     lcl = pitch_time - (pitch_time * tolerance)
     return ucl, lcl
 
 
-def calculate_line_balancing_rate(
-    workstations: List[Workstation],
-) -> float:
+def calculate_line_balancing_rate(workstations: List[Workstation], ) -> float:
     """
     Calculate Line Balancing Rate based on Bal SAM values.
     
@@ -89,22 +86,22 @@ def calculate_line_balancing_rate(
     """
     if not workstations:
         return 0.0
-    
+
     # Get all Bal SAM values
     bal_sams = [ws.balancing_sam for ws in workstations]
-    
+
     # Find maximum Bal SAM
     max_bal_sam = max(bal_sams)
-    
+
     # Calculate sum of differences
     sum_of_differences = sum(max_bal_sam - bal_sam for bal_sam in bal_sams)
-    
+
     # Compute negative rate
     negative_rate = sum_of_differences / 60
-    
+
     # Compute final balance rate
     line_balancing_rate = 100 - negative_rate
-    
+
     return max(0.0, line_balancing_rate)  # Ensure non-negative
 
 
@@ -127,25 +124,25 @@ def calculate_balance_delay(
     """
     if not workstations:
         return 0.0
-    
+
     # Calculate total manpower (actual physical machines after balancing)
     total_manpower = sum(ws.manpower for ws in workstations)
-    
+
     # Get maximum balanced SAM (bottleneck)
     max_balanced_sam = max(ws.balancing_sam for ws in workstations)
-    
+
     # Calculate total basic time (SAM)
     total_basic_time = sum(op.basic_time for op in operations)
-    
+
     # Calculate balance delay
     numerator = (total_manpower * max_balanced_sam) - total_basic_time
     denominator = total_manpower * max_balanced_sam
-    
+
     if denominator == 0:
         return 0.0
-    
+
     balance_delay = (numerator / denominator) * 100
-    
+
     return max(0.0, balance_delay)  # Ensure non-negative
 
 
@@ -172,25 +169,25 @@ def calculate_line_efficiency(
     """
     if not workstations or production_target <= 0 or shift_time_minutes <= 0:
         return 0.0
-    
+
     # Calculate total manpower (actual physical machines after balancing)
     total_manpower = sum(ws.manpower for ws in workstations)
-    
+
     # Calculate total basic time (SAM)
     total_basic_time = sum(op.basic_time for op in operations)
-    
+
     # Convert shift time from minutes to seconds
     shift_time_seconds = shift_time_minutes * 60
-    
+
     # Calculate line efficiency
     numerator = production_target * total_basic_time
     denominator = total_manpower * shift_time_seconds
-    
+
     if denominator == 0:
         return 0.0
-    
+
     line_efficiency = (numerator / denominator) * 100
-    
+
     return max(0.0, line_efficiency)  # Ensure non-negative
 
 
@@ -217,22 +214,23 @@ def calculate_smoothing_index(workstations: List[Workstation]) -> float:
     """
     if not workstations:
         return 0.0
-    
+
     # Get all Balancing SAM values and convert to minutes
     balancing_sam_minutes = [ws.balancing_sam / 60 for ws in workstations]
-    
+
     # Find bottleneck (maximum Balancing SAM in minutes)
     bottleneck = max(balancing_sam_minutes)
-    
+
     # Calculate squared differences from bottleneck
-    squared_differences = [(bottleneck - sam) ** 2 for sam in balancing_sam_minutes]
-    
+    squared_differences = [(bottleneck - sam)**2
+                           for sam in balancing_sam_minutes]
+
     # Sum all squared differences
     sum_squared_differences = sum(squared_differences)
-    
+
     # Take square root
-    smoothing_index = sum_squared_differences ** 0.5
-    
+    smoothing_index = sum_squared_differences**0.5
+
     return smoothing_index
 
 
@@ -280,16 +278,16 @@ def calculate_required_minutes(
     """
     if not workstations or production_target <= 0 or line_efficiency is None or line_efficiency <= 0:
         return None
-        
+
     total_manpower = sum(ws.manpower for ws in workstations)
     if total_manpower <= 0:
         return None
-        
+
     sam_total_minutes = sum(ws.balancing_sam for ws in workstations) / 60
     required_line_efficiency_fraction = line_efficiency / 100
     denominator = total_manpower * required_line_efficiency_fraction
-    
+
     if denominator <= 0:
         return None
-        
+
     return (production_target * sam_total_minutes) / denominator

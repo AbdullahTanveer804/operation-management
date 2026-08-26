@@ -10,27 +10,20 @@ import argparse
 from pathlib import Path
 from typing import List, Optional
 
-if __package__ in {None, ""}:
-    from balancing import group_and_balance
-    from io_utils import read_operations
-    from metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index, calculate_throughput_rate, calculate_required_minutes
-    from models import Workstation
-    from report import build_report_dataframe, export_report, print_summary
-    from sequencing import sort_by_id
-else:
-    from .balancing import group_and_balance
-    from .io_utils import read_operations
-    from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index, calculate_throughput_rate, calculate_required_minutes
-    from .models import Workstation
-    from .report import build_report_dataframe, export_report, print_summary
-    from .sequencing import sort_by_id
+from .balancing import group_and_balance
+from .io_utils import read_operations
+from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index, calculate_throughput_rate, calculate_required_minutes
+from .models import Workstation
+from .report import build_report_dataframe, export_report, print_summary
+from .sequencing import sort_by_id
 
 
 def resolve_input_path(input_path: Optional[str] = None) -> str:
     if input_path:
         return input_path
 
-    default_path = Path(__file__).resolve().parents[2] / "data" / "sample_operations.csv"
+    default_path = Path(
+        __file__).resolve().parents[2] / "data" / "sample_operations.csv"
     return str(default_path)
 
 
@@ -59,7 +52,9 @@ def run_workflow(
 
     if pitch_time_method == "manual":
         if manual_pitch_time is None or manual_pitch_time <= 0:
-            raise ValueError("Manual pitch time must be provided and positive when method is 'manual'.")
+            raise ValueError(
+                "Manual pitch time must be provided and positive when method is 'manual'."
+            )
         pitch_time = manual_pitch_time
         pitch_time_source = "manual"
         # Clear target-related parameters for manual method
@@ -69,20 +64,30 @@ def run_workflow(
         ucl = None
         lcl = None
         # STEP 5: Balance operations into workstations
-        workstations = group_and_balance(sorted_operations, pitch_time, pitch_time, strict=True)
+        workstations = group_and_balance(sorted_operations,
+                                         pitch_time,
+                                         pitch_time,
+                                         strict=True)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
-            raise ValueError("Production target must be provided and positive when method is 'target'.")
+            raise ValueError(
+                "Production target must be provided and positive when method is 'target'."
+            )
         if shift_time_minutes is None or shift_time_minutes <= 0:
-            raise ValueError("Shift time must be provided and positive when method is 'target'.")
-        
+            raise ValueError(
+                "Shift time must be provided and positive when method is 'target'."
+            )
+
         # Step 1 — Derive Takt Time from By-Target input
-        takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+        takt_time = calculate_pitch_time_from_target(production_target,
+                                                     shift_time_minutes)
         pitch_time = takt_time
         pitch_time_source = "By Target"
-        
+
         # Step 2 — Validate BEFORE balancing
-        max_sam = max(op.basic_time for op in sorted_operations) if sorted_operations else 0.0
+        max_sam = max(
+            op.basic_time
+            for op in sorted_operations) if sorted_operations else 0.0
         if max_sam > takt_time:
             demand_met = False
             target_validation_message = "Max basic time (SAM) exceeds Takt Time — customer demand target is NOT currently met."
@@ -94,12 +99,16 @@ def run_workflow(
         auto_pitch_time = calculate_pitch_time(sorted_operations)
         if tolerance is None:
             tolerance = 0.15
-        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time, tolerance)
+        auto_ucl, auto_lcl = calculate_tolerance_bands(auto_pitch_time,
+                                                       tolerance)
         # Use auto-computed values for display and status determination
         ucl = auto_ucl
         lcl = auto_lcl
         # Use strict=True to remove 0.5s relaxation for By Target workflow
-        workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl, strict=True)
+        workstations = group_and_balance(sorted_operations,
+                                         auto_ucl,
+                                         auto_lcl,
+                                         strict=True)
 
         # Step 4 — Recheck balanced result against Takt Time, loop until it passes or safety cap is hit
         attempt = 1
@@ -107,18 +116,28 @@ def run_workflow(
         target_recheck_messages = []
 
         while attempt <= MAX_ATTEMPTS:
-            recheck_max_sam = max(ws.balancing_sam for ws in workstations) if workstations else 0.0
+            recheck_max_sam = max(
+                ws.balancing_sam
+                for ws in workstations) if workstations else 0.0
             if recheck_max_sam <= takt_time:
-                target_recheck_messages.append("Balancing OK — result satisfies Takt Time.")
+                target_recheck_messages.append(
+                    "Balancing OK — result satisfies Takt Time.")
                 target_recheck_summary = f"Balancing OK — result satisfies Takt Time (Attempt {attempt})."
                 break
             else:
-                target_recheck_messages.append(f"Balancing not OK (attempt {attempt}) — re-balancing required.")
-                workstations = group_and_balance(sorted_operations, auto_ucl, auto_lcl, strict=True)
+                target_recheck_messages.append(
+                    f"Balancing not OK (attempt {attempt}) — re-balancing required."
+                )
+                workstations = group_and_balance(sorted_operations,
+                                                 auto_ucl,
+                                                 auto_lcl,
+                                                 strict=True)
                 attempt += 1
 
         if attempt > MAX_ATTEMPTS:
-            target_recheck_messages.append(f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result.")
+            target_recheck_messages.append(
+                f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result."
+            )
             target_recheck_summary = f"Unable to fully satisfy Takt Time after {MAX_ATTEMPTS} balancing attempts — showing best achieved result."
     else:  # auto (default)
         pitch_time = calculate_pitch_time(sorted_operations)
@@ -140,7 +159,10 @@ def run_workflow(
     # STEP 6.6: Calculate line efficiency (if production target and shift time provided and method is target)
     line_efficiency = None
     if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
-        line_efficiency = calculate_line_efficiency(workstations, sorted_operations, production_target, shift_time_minutes)
+        line_efficiency = calculate_line_efficiency(workstations,
+                                                    sorted_operations,
+                                                    production_target,
+                                                    shift_time_minutes)
 
     # STEP 6.7: Calculate smoothing index
     smoothing_index = calculate_smoothing_index(workstations)
@@ -151,20 +173,45 @@ def run_workflow(
     if pitch_time_method == "target" and production_target is not None:
         throughput_rate = calculate_throughput_rate(workstations)
         if line_efficiency is not None:
-            required_minutes = calculate_required_minutes(production_target, workstations, line_efficiency)
+            required_minutes = calculate_required_minutes(
+                production_target, workstations, line_efficiency)
 
     # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
     # For By Target method, use auto_pitch_time for display in the table alongside takt_time
     display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
-    report_df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=display_pitch_time, pitch_time_source=pitch_time_source)
+    report_df = build_report_dataframe(workstations,
+                                       ucl=ucl,
+                                       lcl=lcl,
+                                       pitch_time=display_pitch_time,
+                                       pitch_time_source=pitch_time_source)
 
     # For By Target method, pass auto_pitch_time for display
     display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
-    print_summary(display_pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops, sorted_operations, balance_delay, line_efficiency, pitch_time_source, smoothing_index, tolerance, production_target, shift_time_minutes, throughput_rate=throughput_rate, required_minutes=required_minutes)
+    print_summary(display_pitch_time,
+                  ucl,
+                  lcl,
+                  workstations,
+                  line_balancing_rate,
+                  flagged_ops,
+                  sorted_operations,
+                  balance_delay,
+                  line_efficiency,
+                  pitch_time_source,
+                  smoothing_index,
+                  tolerance,
+                  production_target,
+                  shift_time_minutes,
+                  throughput_rate=throughput_rate,
+                  required_minutes=required_minutes)
 
     if export_path:
-        export_report(workstations, export_path, pitch_time=display_pitch_time, ucl=ucl, lcl=lcl, pitch_time_source=pitch_time_source)
+        export_report(workstations,
+                      export_path,
+                      pitch_time=display_pitch_time,
+                      ucl=ucl,
+                      lcl=lcl,
+                      pitch_time_source=pitch_time_source)
         print(f"\nReport exported to {export_path}")
 
     return {
@@ -214,13 +261,45 @@ def run(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Line Balancing Optimizer")
-    parser.add_argument("input", nargs="?", default=None, help="Path to CSV/XLSX with operation data")
-    parser.add_argument("--tolerance", type=float, default=0.15, help="UCL/LCL tolerance, default 0.15 (15%%)")
-    parser.add_argument("--export", type=str, default=None, help="Export report to a XLSX path")
-    parser.add_argument("--production-target", type=int, default=None, help="Production target (number of units) for line efficiency calculation and pitch time calculation")
-    parser.add_argument("--shift-time", type=float, default=None, help="Shift time in minutes for line efficiency calculation and pitch time calculation")
-    parser.add_argument("--pitch-time-method", type=str, default="auto", choices=["auto", "manual", "target"], help="Method for calculating pitch time: auto (from file), manual (input), target (from production target)")
-    parser.add_argument("--pitch-time", type=float, default=None, help="Manual pitch time (required when --pitch-time-method is manual)")
+    parser.add_argument("input",
+                        nargs="?",
+                        default=None,
+                        help="Path to CSV/XLSX with operation data")
+    parser.add_argument("--tolerance",
+                        type=float,
+                        default=0.15,
+                        help="UCL/LCL tolerance, default 0.15 (15%%)")
+    parser.add_argument("--export",
+                        type=str,
+                        default=None,
+                        help="Export report to a XLSX path")
+    parser.add_argument(
+        "--production-target",
+        type=int,
+        default=None,
+        help=
+        "Production target (number of units) for line efficiency calculation and pitch time calculation"
+    )
+    parser.add_argument(
+        "--shift-time",
+        type=float,
+        default=None,
+        help=
+        "Shift time in minutes for line efficiency calculation and pitch time calculation"
+    )
+    parser.add_argument(
+        "--pitch-time-method",
+        type=str,
+        default="auto",
+        choices=["auto", "manual", "target"],
+        help=
+        "Method for calculating pitch time: auto (from file), manual (input), target (from production target)"
+    )
+    parser.add_argument(
+        "--pitch-time",
+        type=float,
+        default=None,
+        help="Manual pitch time (required when --pitch-time-method is manual)")
     args = parser.parse_args()
 
     run_workflow(
