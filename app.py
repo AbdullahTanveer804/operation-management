@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 from src.line_balancer.models import Operation, Workstation
 from src.line_balancer.io_utils import read_operations
 from src.line_balancer.sequencing import sort_by_id
-from src.line_balancer.metrics import calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_line_balancing_rate, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
+from src.line_balancer.metrics import calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_line_balancing_rate, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index, calculate_throughput_rate, calculate_required_minutes
 from src.line_balancer.balancing import group_and_balance
 from src.line_balancer.report import build_report_dataframe, determine_status
 from src.line_balancer.before_balancing_metrics import calculate_all_before_metrics
@@ -255,6 +255,15 @@ def calculate_balance(operations: List[Operation],
     if target_for_productivity_after is not None and total_manpower_after > 0:
         labour_productivity_after = target_for_productivity_after / total_manpower_after
 
+    # Step 4.12: Calculate Throughput Rate and Required Minutes for By Target method
+    throughput_rate = None
+    required_minutes = None
+    if pitch_time_method == "target" and production_target is not None:
+        throughput_rate = calculate_throughput_rate(workstations)
+        if line_efficiency is not None:
+            required_minutes = calculate_required_minutes(
+                production_target, workstations, line_efficiency)
+
     # Step 5: Build report
     # For By Target method, use auto_pitch_time for display in the table alongside takt_time
     display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
@@ -285,6 +294,8 @@ def calculate_balance(operations: List[Operation],
         "target_after": target_after,
         "labour_productivity_before": labour_productivity_before,
         "labour_productivity_after": labour_productivity_after,
+        "throughput_rate": throughput_rate,
+        "required_minutes": required_minutes,
         "demand_met": demand_met,
         "target_validation_message": target_validation_message,
         "target_recheck_messages": target_recheck_messages,
@@ -1116,6 +1127,32 @@ def export(format: str, session_id: str):
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
 
+        # 13.5. Throughput Rate (for By Target method)
+        throughput_before = calc.get('before_metrics', {}).get('throughput_rate')
+        throughput_after = calc.get('throughput_rate')
+        if pitch_time_source_tag == "By Target" and (throughput_before is not None or throughput_after is not None):
+            if throughput_before is not None:
+                worksheet[f'A{current_row}'] = f"Throughput Rate (Before): {throughput_before:.1f}s"
+                worksheet[f'A{current_row}'].font = Font(bold=True)
+                current_row += 1
+            if throughput_after is not None:
+                worksheet[f'A{current_row}'] = f"Throughput Rate (After): {throughput_after:.1f}s"
+                worksheet[f'A{current_row}'].font = Font(bold=True)
+                current_row += 1
+
+        # 13.6. Required Minutes (for By Target method)
+        req_min_before = calc.get('before_metrics', {}).get('required_minutes')
+        req_min_after = calc.get('required_minutes')
+        if pitch_time_source_tag == "By Target" and (req_min_before is not None or req_min_after is not None):
+            if req_min_before is not None:
+                worksheet[f'A{current_row}'] = f"Required Minutes (Before): {req_min_before:.1f} min"
+                worksheet[f'A{current_row}'].font = Font(bold=True)
+                current_row += 1
+            if req_min_after is not None:
+                worksheet[f'A{current_row}'] = f"Required Minutes (After): {req_min_after:.1f} min"
+                worksheet[f'A{current_row}'].font = Font(bold=True)
+                current_row += 1
+
         # 14. Target (If available)
         target_before = calc.get('target_before')
         target_after = calc.get('target_after')
@@ -1394,6 +1431,8 @@ def recalculate():
                 "available_time_minutes": result["available_time_minutes"],
                 "target_before": result["target_before"],
                 "target_after": result["target_after"],
+                "throughput_rate": result.get("throughput_rate"),
+                "required_minutes": result.get("required_minutes"),
             },
             "before_metrics": result["before_metrics"]
         }
@@ -1411,6 +1450,8 @@ def recalculate():
                 "target_recheck_messages", [])
             response_data["result"]["target_recheck_summary"] = result.get(
                 "target_recheck_summary")
+            response_data["result"]["throughput_rate"] = result.get("throughput_rate")
+            response_data["result"]["required_minutes"] = result.get("required_minutes")
 
         return jsonify(response_data)
     except Exception as e:
@@ -3542,6 +3583,30 @@ HTML_TEMPLATE = """
                                         {% else %}
                                             <span class="metric-value">{% if result.line_efficiency %}{{ "%.1f"|format(result.line_efficiency) }}{% else %}N/A{% endif %}<span class="unit">%</span></span>
                                         {% endif %}
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% if result.pitch_time_source == "By Target" and result.throughput_rate is not none and result.before_metrics.throughput_rate is not none %}
+                                <tr>
+                                    <td class="metric-name">Throughput Rate</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.throughput_rate) }}<span class="unit"> s</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% set arrow = '↑' if (result.throughput_rate|round(1)) > (result.before_metrics.throughput_rate|round(1)) else ('↓' if (result.throughput_rate|round(1)) < (result.before_metrics.throughput_rate|round(1)) else '') %}
+                                        <span class="metric-value">{{ "%.1f"|format(result.throughput_rate) }}<span class="unit"> s</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% if result.pitch_time_source == "By Target" and result.required_minutes is not none and result.before_metrics.required_minutes is not none %}
+                                <tr>
+                                    <td class="metric-name">Required Minutes</td>
+                                    <td class="before-cell">
+                                        <span class="metric-value">{{ "%.1f"|format(result.before_metrics.required_minutes) }}<span class="unit"> min</span></span>
+                                    </td>
+                                    <td class="after-cell">
+                                        {% set arrow = '↑' if (result.required_minutes|round(1)) > (result.before_metrics.required_minutes|round(1)) else ('↓' if (result.required_minutes|round(1)) < (result.before_metrics.required_minutes|round(1)) else '') %}
+                                        <span class="metric-value">{{ "%.1f"|format(result.required_minutes) }}<span class="unit"> min</span>{% if arrow %} <span style="font-weight: 900; font-size: 1.2em;">{{ arrow }}</span>{% endif %}</span>
                                     </td>
                                 </tr>
                                 {% endif %}

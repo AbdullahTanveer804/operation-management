@@ -13,14 +13,14 @@ from typing import List, Optional
 if __package__ in {None, ""}:
     from balancing import group_and_balance
     from io_utils import read_operations
-    from metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
+    from metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index, calculate_throughput_rate, calculate_required_minutes
     from models import Workstation
     from report import build_report_dataframe, export_report, print_summary
     from sequencing import sort_by_id
 else:
     from .balancing import group_and_balance
     from .io_utils import read_operations
-    from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index
+    from .metrics import calculate_line_balancing_rate, calculate_pitch_time, calculate_pitch_time_from_target, calculate_tolerance_bands, calculate_balance_delay, calculate_line_efficiency, calculate_smoothing_index, calculate_throughput_rate, calculate_required_minutes
     from .models import Workstation
     from .report import build_report_dataframe, export_report, print_summary
     from .sequencing import sort_by_id
@@ -145,6 +145,14 @@ def run_workflow(
     # STEP 6.7: Calculate smoothing index
     smoothing_index = calculate_smoothing_index(workstations)
 
+    # STEP 6.8: Calculate Throughput Rate and Required Minutes for By Target method
+    throughput_rate = None
+    required_minutes = None
+    if pitch_time_method == "target" and production_target is not None:
+        throughput_rate = calculate_throughput_rate(workstations)
+        if line_efficiency is not None:
+            required_minutes = calculate_required_minutes(production_target, workstations, line_efficiency)
+
     # STEP 7: Build report
     flagged_ops = [op for op in sorted_operations if op.flagged]
     # For By Target method, use auto_pitch_time for display in the table alongside takt_time
@@ -153,7 +161,7 @@ def run_workflow(
 
     # For By Target method, pass auto_pitch_time for display
     display_pitch_time = auto_pitch_time if pitch_time_method == "target" else pitch_time
-    print_summary(display_pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops, sorted_operations, balance_delay, line_efficiency, pitch_time_source, smoothing_index, tolerance, production_target, shift_time_minutes)
+    print_summary(display_pitch_time, ucl, lcl, workstations, line_balancing_rate, flagged_ops, sorted_operations, balance_delay, line_efficiency, pitch_time_source, smoothing_index, tolerance, production_target, shift_time_minutes, throughput_rate=throughput_rate, required_minutes=required_minutes)
 
     if export_path:
         export_report(workstations, export_path, pitch_time=display_pitch_time, ucl=ucl, lcl=lcl, pitch_time_source=pitch_time_source)
@@ -172,6 +180,8 @@ def run_workflow(
         "balance_delay": balance_delay,
         "line_efficiency": line_efficiency,
         "smoothing_index": smoothing_index,
+        "throughput_rate": throughput_rate,
+        "required_minutes": required_minutes,
         "flagged_ops": flagged_ops,
         "report_df": report_df,
         "demand_met": demand_met,

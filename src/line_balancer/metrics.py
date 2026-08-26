@@ -7,7 +7,7 @@ Note: When time method is manual or calculated by target, it's called "Takt Time
 When auto-calculated from operations, it's called "Pitch Time".
 """
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 if __package__ in {None, ""}:
     from models import Operation, Workstation
@@ -50,9 +50,9 @@ def calculate_pitch_time_from_target(production_target: int, shift_time_minutes:
         Calculated takt time in seconds
     """
     if production_target <= 0:
-        raise ValueError("Production target must be a positive number.")
+        raise ValueError("Production target must be positive.")
     if shift_time_minutes <= 0:
-        raise ValueError("Shift time must be a positive number.")
+        raise ValueError("Shift time must be positive.")
     
     # Calculate takt time in minutes
     takt_time_minutes = shift_time_minutes / production_target
@@ -234,3 +234,62 @@ def calculate_smoothing_index(workstations: List[Workstation]) -> float:
     smoothing_index = sum_squared_differences ** 0.5
     
     return smoothing_index
+
+
+def calculate_throughput_rate(workstations: List[Workstation]) -> float:
+    """
+    Calculate throughput rate after balancing (maximum balancing SAM across all composite operations/workstations).
+    Applies ONLY to By Target method.
+    
+    Args:
+        workstations: List of Workstation objects with balancing_sam values
+        
+    Returns:
+        Throughput rate in seconds
+    """
+    if not workstations:
+        return 0.0
+    return max(ws.balancing_sam for ws in workstations)
+
+
+def calculate_required_minutes(
+    production_target: int,
+    workstations: List[Workstation],
+    line_efficiency: float,
+) -> Optional[float]:
+    """
+    Calculate required minutes after balancing.
+    Applies ONLY to By Target method.
+    
+    Formula:
+    Required Minutes = (Target × SAM_total_minutes) / (Manpower × Required_Line_Efficiency_fraction)
+    
+    Where:
+    - Target: production_target (customer demand)
+    - SAM_total_minutes: SUM(balancing_SAM_j in seconds, all workstations) / 60
+    - Manpower: sum of manpower across all workstations
+    - Required_Line_Efficiency_fraction: line_efficiency / 100
+    
+    Args:
+        production_target: Production target (customer demand)
+        workstations: List of Workstation objects with balancing_sam and manpower
+        line_efficiency: After-balancing Line Efficiency percentage
+        
+    Returns:
+        Required minutes
+    """
+    if not workstations or production_target <= 0 or line_efficiency is None or line_efficiency <= 0:
+        return None
+        
+    total_manpower = sum(ws.manpower for ws in workstations)
+    if total_manpower <= 0:
+        return None
+        
+    sam_total_minutes = sum(ws.balancing_sam for ws in workstations) / 60
+    required_line_efficiency_fraction = line_efficiency / 100
+    denominator = total_manpower * required_line_efficiency_fraction
+    
+    if denominator <= 0:
+        return None
+        
+    return (production_target * sam_total_minutes) / denominator

@@ -164,6 +164,8 @@ def print_summary(
     tolerance: float = 0.15,
     production_target: int = None,
     shift_time_minutes: float = None,
+    throughput_rate: float = None,
+    required_minutes: float = None,
 ) -> None:
     """
     Print a summary of the balancing results to the console.
@@ -182,6 +184,8 @@ def print_summary(
     11. Balancing Rate
     12. Balance Delay
     13. Smoothing Index
+    14. Throughput Rate (By Target only)
+    15. Required Minutes (By Target only)
     - Any flagged operations that had errors
     
     Args:
@@ -199,6 +203,8 @@ def print_summary(
         tolerance: Tolerance percentage (default 0.15 for 15%)
         production_target: Optional production target
         shift_time_minutes: Optional shift time in minutes
+        throughput_rate: Optional throughput rate in seconds (By Target)
+        required_minutes: Optional required minutes (By Target)
     """
     df = build_report_dataframe(workstations, ucl=ucl, lcl=lcl, pitch_time=pitch_time, pitch_time_source=pitch_time_source)
     
@@ -239,6 +245,10 @@ def print_summary(
         print(f"Balance Delay: {balance_delay:.1f}%")
     if smoothing_index is not None:
         print(f"Smoothing Index: {smoothing_index:.2f} min")
+    if throughput_rate is not None:
+        print(f"Throughput Rate: {throughput_rate:.1f}s")
+    if required_minutes is not None:
+        print(f"Required Minutes: {required_minutes:.1f} min")
     print("=" * 120)
     
     # Show any flagged operations

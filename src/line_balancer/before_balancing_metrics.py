@@ -295,6 +295,59 @@ def calculate_before_smoothing_index(operations: List[Operation]) -> float:
     return smoothing_index
 
 
+def calculate_before_throughput_rate(operations: List[Operation]) -> float:
+    """
+    Calculate throughput rate before balancing (maximum basic time across all operations).
+    Applies ONLY to By Target method.
+    
+    Args:
+        operations: List of Operation objects from input file
+        
+    Returns:
+        Throughput rate in seconds
+    """
+    if not operations:
+        return 0.0
+    return max(op.basic_time for op in operations)
+
+
+def calculate_before_required_minutes(
+    operations: List[Operation],
+    production_target: int,
+    line_efficiency: float,
+) -> Optional[float]:
+    """
+    Calculate required minutes before balancing.
+    Applies ONLY to By Target method.
+    
+    Formula:
+    Required Minutes = (Target × SAM_total_minutes) / (Manpower × Required_Line_Efficiency_fraction)
+    
+    Args:
+        operations: List of Operation objects from input file
+        production_target: Production target (customer demand)
+        line_efficiency: Before-balancing Line Efficiency percentage
+        
+    Returns:
+        Required minutes
+    """
+    if not operations or production_target <= 0 or line_efficiency is None or line_efficiency <= 0:
+        return None
+    
+    total_manpower = len(operations)
+    if total_manpower <= 0:
+        return None
+        
+    sam_total_minutes = sum(op.basic_time for op in operations) / 60
+    required_line_efficiency_fraction = line_efficiency / 100
+    denominator = total_manpower * required_line_efficiency_fraction
+    
+    if denominator <= 0:
+        return None
+        
+    return (production_target * sam_total_minutes) / denominator
+
+
 def calculate_all_before_metrics(
     operations: List[Operation],
     production_target: int = None,
@@ -380,6 +433,14 @@ def calculate_all_before_metrics(
     if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
         line_efficiency = calculate_before_line_efficiency(operations, production_target, shift_time_minutes)
     
+    # Calculate Throughput Rate and Required Minutes for By Target method
+    throughput_rate = None
+    required_minutes = None
+    if pitch_time_method == "target":
+        throughput_rate = calculate_before_throughput_rate(operations)
+        if line_efficiency is not None:
+            required_minutes = calculate_before_required_minutes(operations, production_target, line_efficiency)
+
     # Calculate Target if both efficiency and available time are provided
     target = None
     if efficiency_percentage is not None and available_time_minutes is not None:
@@ -412,6 +473,8 @@ def calculate_all_before_metrics(
         "smoothing_index": smoothing_index,
         "target": target,
         "labour_productivity": labour_productivity,
+        "throughput_rate": throughput_rate,
+        "required_minutes": required_minutes,
     }
     
     # Include tolerance for auto and By Target methods
