@@ -12,7 +12,10 @@ import pandas as pd
 from .models import Operation, Workstation
 
 
-def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
+def determine_status(balancing_sam: float,
+                     ucl: float,
+                     lcl: float,
+                     pitch_time_source: str = "calculated") -> str:
     """
     Determine the status of a workstation based on its balancing SAM.
     
@@ -20,11 +23,20 @@ def determine_status(balancing_sam: float, ucl: float, lcl: float) -> str:
         balancing_sam: The balanced time per operator
         ucl: Upper Control Limit (or target time for manual/target methods)
         lcl: Lower Control Limit (or target time for manual/target methods)
+        pitch_time_source: Source method ("manual", "By Target", "By Target Direct", or "calculated")
     
     Returns:
-        Status string: "OK", "> UCL (review)", or "< LCL (review)"
-        For manual/target methods, returns "OK" if within 10% of target
+        Status string: "< Takt Time", "> Takt Time", "OK", "> UCL (review)", or "< LCL (review)"
     """
+    if pitch_time_source == "By Target Direct":
+        target = ucl if ucl is not None else lcl
+        if target is None:
+            return "< Takt Time"
+        if balancing_sam > target:
+            return "> Takt Time"
+        else:
+            return "< Takt Time"
+
     if ucl is None or lcl is None:
         # For manual/target methods, use target (ucl) and allow 10% flexibility
         target = ucl if ucl is not None else lcl
@@ -60,19 +72,19 @@ def build_report_dataframe(
     5. Predecessor - Predecessor IDs joined with " + " for combined (e.g., "1 + 18")
     6. Basic Time - Individual basic times joined with " + " for combined
     7. Pitch Time / Takt Time - Constant pitch/takt time value (repeated for each row)
-    8. UCL - Constant Upper Control Limit value (repeated for each row) - ONLY for auto method
-    9. LCL - Constant Lower Control Limit value (repeated for each row) - ONLY for auto method
+    8. UCL - Constant Upper Control Limit value (repeated for each row) - ONLY for auto/target methods
+    9. LCL - Constant Lower Control Limit value (repeated for each row) - ONLY for auto/target methods
     10. Combined Basic Time - Total time for the workstation
     11. M/P - Manpower needed
     12. Balancing SAM - Time per operator after balancing
-    13. Status - OK / > UCL / < LCL / > Target
+    13. Status - OK / > UCL / < LCL / > Target / < Takt Time / > Takt Time
     
     Args:
         workstations: List of Workstation objects
-        ucl: Upper Control Limit (optional, for status determination and column - only for auto method)
-        lcl: Lower Control Limit (optional, for status determination and column - only for auto method)
+        ucl: Upper Control Limit (optional, for status determination and column - only for auto/target method)
+        lcl: Lower Control Limit (optional, for status determination and column - only for auto/target method)
         pitch_time: Pitch time (optional, for column)
-        pitch_time_source: Source of pitch time calculation ("manual", "By Target", or "calculated")
+        pitch_time_source: Source of pitch time calculation ("manual", "By Target", "By Target Direct", or "calculated")
     
     Returns:
         DataFrame with formatted report data
@@ -80,7 +92,7 @@ def build_report_dataframe(
     rows = []
 
     # Determine column name based on pitch time source
-    if pitch_time_source == "manual":
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         pitch_time_column_name = "Takt Time"
     elif pitch_time_source == "By Target":
         pitch_time_column_name = "Pitch Time (Auto)"
@@ -118,11 +130,13 @@ def build_report_dataframe(
 
         # Determine status
         status = "OK"
-        if include_ucl_lcl and ucl is not None and lcl is not None:
-            status = determine_status(ws.balancing_sam, ucl, lcl)
+        if pitch_time_source == "By Target Direct":
+            status = determine_status(ws.balancing_sam, pitch_time, pitch_time, pitch_time_source=pitch_time_source)
+        elif include_ucl_lcl and ucl is not None and lcl is not None:
+            status = determine_status(ws.balancing_sam, ucl, lcl, pitch_time_source=pitch_time_source)
         elif not include_ucl_lcl:
             # For manual method only, use pitch_time as target
-            status = determine_status(ws.balancing_sam, pitch_time, pitch_time)
+            status = determine_status(ws.balancing_sam, pitch_time, pitch_time, pitch_time_source=pitch_time_source)
 
         # Build row dictionary
         row = {
@@ -150,7 +164,7 @@ def build_report_dataframe(
             status,
         }
 
-        # Only add UCL/LCL columns for auto method
+        # Only add UCL/LCL columns for auto/target method
         if include_ucl_lcl:
             row["UCL"] = round(ucl, 1) if ucl is not None else ""
             row["LCL"] = round(lcl, 1) if lcl is not None else ""
@@ -245,7 +259,7 @@ def print_summary(
         print(f"Line Efficiency%: {line_efficiency:.1f}%")
     print(f"Total ManPower: {sum(ws.manpower for ws in workstations)}")
     # Determine display name based on pitch time source
-    if pitch_time_source == "manual":
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         time_display_name = "Takt Time"
     elif pitch_time_source == "By Target":
         time_display_name = "Pitch Time (Auto)"

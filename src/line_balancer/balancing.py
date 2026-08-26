@@ -31,16 +31,22 @@ from .models import Operation, Workstation
 HELPER_MACHINES = {"By Hand", "Pointer", "Pencil", "Clipper", "Press"}
 
 
-def is_within_range(time: float, ucl: float, lcl: float) -> bool:
+def is_within_range(time: float,
+                    ucl: float,
+                    lcl: float,
+                    strict: bool = False) -> bool:
     """Check if a time value falls within the acceptable band [LCL, UCL].
     
-    If ucl and lcl are None (for manual/target methods), check if time is close to target (within 10%).
+    If ucl and lcl are None (or identical for manual/target methods), check if time is close to target.
+    When strict=True, time must not exceed target (time <= target).
     """
     if ucl is None or lcl is None:
-        # For manual/target methods, use the ucl as target and allow 10% flexibility
+        # For manual/target methods, use the ucl as target
         target = ucl if ucl is not None else lcl
         if target is None:
             return True  # No constraints if both are None
+        if strict:
+            return time <= target
         return time <= target * 1.1  # Allow 10% above target
     return lcl <= time <= ucl
 
@@ -235,7 +241,7 @@ def group_and_balance(sorted_operations: List[Operation],
             continue
 
         # ===== STEP 1: Check if operation is already within acceptable range =====
-        if is_within_range(current_op.basic_time, ucl, lcl):
+        if is_within_range(current_op.basic_time, ucl, lcl, strict=strict):
             # It's fine as-is: create a workstation with just this operation
             ws = Workstation(operations=[current_op],
                              manpower=1,
@@ -256,7 +262,7 @@ def group_and_balance(sorted_operations: List[Operation],
             combined_time = current_op.basic_time + partner_op.basic_time
 
             # Check if combined time is now acceptable
-            if is_within_range(combined_time, ucl, lcl):
+            if is_within_range(combined_time, ucl, lcl, strict=strict):
                 # Perfect! Combined time fits in the band
                 ws = Workstation(operations=[current_op, partner_op],
                                  manpower=1,

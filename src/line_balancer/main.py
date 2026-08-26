@@ -68,6 +68,27 @@ def run_workflow(
                                          pitch_time,
                                          pitch_time,
                                          strict=True)
+    elif pitch_time_method == "target_direct":
+        if production_target is None or production_target <= 0:
+            raise ValueError(
+                "Production target must be provided and positive when method is 'target_direct'."
+            )
+        if shift_time_minutes is None or shift_time_minutes <= 0:
+            raise ValueError(
+                "Shift time must be provided and positive when method is 'target_direct'."
+            )
+        takt_time = calculate_pitch_time_from_target(production_target,
+                                                     shift_time_minutes)
+        pitch_time = takt_time
+        pitch_time_source = "By Target Direct"
+        # No tolerance bands for target_direct method
+        ucl = None
+        lcl = None
+        # Balance operations directly against Takt Time with strict mode
+        workstations = group_and_balance(sorted_operations,
+                                         pitch_time,
+                                         pitch_time,
+                                         strict=True)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError(
@@ -156,9 +177,9 @@ def run_workflow(
     # STEP 6.5: Calculate balance delay
     balance_delay = calculate_balance_delay(workstations, sorted_operations)
 
-    # STEP 6.6: Calculate line efficiency (if production target and shift time provided and method is target)
+    # STEP 6.6: Calculate line efficiency (if production target and shift time provided and method is target or target_direct)
     line_efficiency = None
-    if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
+    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None and shift_time_minutes is not None:
         line_efficiency = calculate_line_efficiency(workstations,
                                                     sorted_operations,
                                                     production_target,
@@ -167,10 +188,10 @@ def run_workflow(
     # STEP 6.7: Calculate smoothing index
     smoothing_index = calculate_smoothing_index(workstations)
 
-    # STEP 6.8: Calculate Throughput Rate and Required Minutes for By Target method
+    # STEP 6.8: Calculate Throughput Rate and Required Minutes for By Target / By Target Direct methods
     throughput_rate = None
     required_minutes = None
-    if pitch_time_method == "target" and production_target is not None:
+    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None:
         throughput_rate = calculate_throughput_rate(workstations)
         if line_efficiency is not None:
             required_minutes = calculate_required_minutes(
@@ -291,9 +312,9 @@ def main() -> None:
         "--pitch-time-method",
         type=str,
         default="auto",
-        choices=["auto", "manual", "target"],
+        choices=["auto", "manual", "target", "target_direct"],
         help=
-        "Method for calculating pitch time: auto (from file), manual (input), target (from production target)"
+        "Method for calculating pitch time: auto (from file), manual (input), target (from production target), target_direct (direct balancing to takt time)"
     )
     parser.add_argument(
         "--pitch-time",

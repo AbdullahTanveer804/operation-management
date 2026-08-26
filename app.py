@@ -107,7 +107,24 @@ def calculate_balance(operations: List[Operation],
         ucl = None
         lcl = None
         # Step 3: Balance operations into workstations
-        workstations = group_and_balance(sorted_ops, pitch_time, pitch_time)
+        workstations = group_and_balance(sorted_ops, pitch_time, pitch_time, strict=True)
+    elif pitch_time_method == "target_direct":
+        if production_target is None or production_target <= 0:
+            raise ValueError(
+                "Production target must be provided and positive when method is 'target_direct'."
+            )
+        if shift_time_minutes is None or shift_time_minutes <= 0:
+            raise ValueError(
+                "Shift time must be provided and positive when method is 'target_direct'."
+            )
+
+        takt_time = calculate_pitch_time_from_target(production_target,
+                                                     shift_time_minutes)
+        pitch_time = takt_time
+        pitch_time_source = "By Target Direct"
+        ucl = None
+        lcl = None
+        workstations = group_and_balance(sorted_ops, pitch_time, pitch_time, strict=True)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError(
@@ -129,10 +146,10 @@ def calculate_balance(operations: List[Operation],
                       for op in sorted_ops) if sorted_ops else 0.0
         if max_sam > takt_time:
             demand_met = False
-            target_validation_message = "Max basic time (SAM) exceeds Takt Time — customer demand target is NOT currently met."
+            target_validation_message = "Max SAM (Seconds) exceeds Takt Time. Cannot fulfill customer demand."
         else:
             demand_met = True
-            target_validation_message = "Max basic time (SAM) is within Takt Time — customer demand target is met."
+            target_validation_message = "Max SAM (Seconds) is within Takt Time. Can fulfill customer demand."
 
         # Step 3 — Balance the line using Pitch Time Auto logic
         auto_pitch_time = calculate_pitch_time(sorted_ops)
@@ -160,13 +177,12 @@ def calculate_balance(operations: List[Operation],
                 for ws in workstations) if workstations else 0.0
             if recheck_max_sam <= takt_time:
                 target_recheck_messages.append(
-                    "Balancing OK — result satisfies Takt Time.")
-                target_recheck_summary = f"Balancing OK — result satisfies Takt Time (Attempt {attempt})."
+                    "OK — Balancing result satisfies Takt Time.")
+                target_recheck_summary = f"OK — Balancing result satisfies Takt Time (Attempt {attempt})."
                 break
             else:
                 target_recheck_messages.append(
-                    f"Balancing not OK (attempt {attempt}) — re-balancing required."
-                )
+                    f"NOT OK (attempt {attempt}) — re-balancing required.")
                 workstations = group_and_balance(sorted_ops,
                                                  auto_ucl,
                                                  auto_lcl,
@@ -197,9 +213,9 @@ def calculate_balance(operations: List[Operation],
     # Step 4.5: Calculate balance delay
     balance_delay = calculate_balance_delay(workstations, sorted_ops)
 
-    # Step 4.6: Calculate line efficiency (if production target and shift time provided and method is target)
+    # Step 4.6: Calculate line efficiency (if production target and shift time provided and method is target or target_direct)
     line_efficiency = None
-    if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
+    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None and shift_time_minutes is not None:
         if production_target <= 0 or shift_time_minutes <= 0:
             raise ValueError(
                 "Production target and shift time must be positive numbers.")
@@ -246,7 +262,7 @@ def calculate_balance(operations: List[Operation],
 
     # Step 4.11: Calculate Labour Productivity for before and after balancing
     # Labour Productivity = Production Target (Customer Demand) / Total Manpower
-    # Use production_target if provided (target method), otherwise use calculated target
+    # Use production_target if provided (target/target_direct method), otherwise use calculated target
     labour_productivity_before = before_metrics.get("labour_productivity")
 
     labour_productivity_after = None
@@ -255,10 +271,10 @@ def calculate_balance(operations: List[Operation],
     if target_for_productivity_after is not None and total_manpower_after > 0:
         labour_productivity_after = target_for_productivity_after / total_manpower_after
 
-    # Step 4.12: Calculate Throughput Rate and Required Minutes for By Target method
+    # Step 4.12: Calculate Throughput Rate and Required Minutes for By Target / By Target Direct methods
     throughput_rate = None
     required_minutes = None
-    if pitch_time_method == "target" and production_target is not None:
+    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None:
         throughput_rate = calculate_throughput_rate(workstations)
         if line_efficiency is not None:
             required_minutes = calculate_required_minutes(
@@ -351,7 +367,7 @@ def generate_chart_image(workstations,
         balancing_sam.append(ws.balancing_sam)
 
     # Determine pitch time label based on source
-    if pitch_time_source == "manual":
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         pitch_time_label = "Takt Time"
     elif pitch_time_source == "By Target":
         pitch_time_label = "Pitch Time (Auto)"
@@ -386,8 +402,8 @@ def generate_chart_image(workstations,
                    color=(249 / 255, 115 / 255, 22 / 255),
                    linestyle='--',
                    linewidth=2)
-    # Show pitch time/takt time line for manual method only
-    if pitch_time_source == "manual":
+    # Show pitch time/takt time line for manual and By Target Direct methods
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         ax.axhline(y=pitch_time,
                    color=(34 / 255, 197 / 255, 94 / 255),
                    linestyle='--',
@@ -414,9 +430,9 @@ def generate_chart_image(workstations,
                   fontweight='500',
                   color='#333333')
     ax.set_title('After Balancing Chart',
-                 fontsize=14,
-                 fontweight='600',
-                 color='#3b82f6')
+                  fontsize=14,
+                  fontweight='600',
+                  color='#3b82f6')
 
     # Set x-axis ticks to workstation names
     ax.set_xticks(range(len(workstation_names)))
@@ -447,8 +463,8 @@ def generate_chart_image(workstations,
                label='Balancing SAM'),
     ]
 
-    # Add pitch time/takt time line for manual method
-    if pitch_time_source == "manual":
+    # Add pitch time/takt time line for manual and By Target Direct methods
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         legend_elements.append(
             Line2D([0], [0],
                    color=(34 / 255, 197 / 255, 94 / 255),
@@ -541,7 +557,7 @@ def generate_before_chart_image(operations,
     basic_times = [op.basic_time for op in operations]
 
     # Determine pitch time label based on source
-    if pitch_time_source == "manual":
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         pitch_time_label = "Takt Time"
     elif pitch_time_source == "By Target":
         pitch_time_label = "Pitch Time (Auto)"
@@ -576,8 +592,8 @@ def generate_before_chart_image(operations,
                    color=(249 / 255, 115 / 255, 22 / 255),
                    linestyle='--',
                    linewidth=2)
-    # Show pitch time/takt time line for manual method only
-    if pitch_time_source == "manual":
+    # Show pitch time/takt time line for manual and By Target Direct methods
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         ax.axhline(y=pitch_time,
                    color=(34 / 255, 197 / 255, 94 / 255),
                    linestyle='--',
@@ -634,8 +650,8 @@ def generate_before_chart_image(operations,
                label='Basic Time (SAM)'),
     ]
 
-    # Add pitch time/takt time line for manual method
-    if pitch_time_source == "manual":
+    # Add pitch time/takt time line for manual and By Target Direct methods
+    if pitch_time_source == "manual" or pitch_time_source == "By Target Direct":
         legend_elements.append(
             Line2D([0], [0],
                    color=(34 / 255, 197 / 255, 94 / 255),
@@ -770,12 +786,12 @@ def index():
                     shift_time_minutes = None
                     production_target = None
                     # Keep efficiency and available time for manual method (they are optional)
-                elif pitch_time_method == "target":
+                elif pitch_time_method == "target" or pitch_time_method == "target_direct":
                     if production_target is None or production_target <= 0:
-                        error = "Production target must be provided and positive when method is 'target'."
+                        error = "Production target must be provided and positive when method is selected."
                     elif shift_time_minutes is None or shift_time_minutes <= 0:
-                        error = "Shift time must be provided and positive when method is 'target'."
-                    # Clear efficiency and available time for target method (out of scope)
+                        error = "Shift time must be provided and positive when method is selected."
+                    # Clear efficiency and available time for target methods (out of scope)
                     efficiency_percentage = None
                     available_time_minutes = None
                 else:  # auto
@@ -1020,6 +1036,10 @@ def export(format: str, session_id: str):
             source_display = "(By Target)"
             time_display_name = "Takt Time"
             display_time = calc['pitch_time']
+        elif pitch_time_source_tag == "By Target Direct":
+            source_display = "(By Target Direct)"
+            time_display_name = "Takt Time"
+            display_time = calc['pitch_time']
         else:  # "calculated" or any other value
             source_display = "(Auto)"
             time_display_name = "Pitch Time"
@@ -1127,29 +1147,36 @@ def export(format: str, session_id: str):
         worksheet[f'A{current_row}'].font = Font(bold=True)
         current_row += 1
 
-        # 13.5. Throughput Rate (for By Target method)
-        throughput_before = calc.get('before_metrics', {}).get('throughput_rate')
+        # 13.5. Throughput Rate (for By Target and By Target Direct methods)
+        throughput_before = calc.get('before_metrics',
+                                     {}).get('throughput_rate')
         throughput_after = calc.get('throughput_rate')
-        if pitch_time_source_tag == "By Target" and (throughput_before is not None or throughput_after is not None):
+        if (pitch_time_source_tag == "By Target" or pitch_time_source_tag == "By Target Direct") and (
+                throughput_before is not None or throughput_after is not None):
             if throughput_before is not None:
-                worksheet[f'A{current_row}'] = f"Throughput Rate (Before): {throughput_before:.1f}s"
+                worksheet[
+                    f'A{current_row}'] = f"Throughput Rate (Before): {throughput_before:.1f}s"
                 worksheet[f'A{current_row}'].font = Font(bold=True)
                 current_row += 1
             if throughput_after is not None:
-                worksheet[f'A{current_row}'] = f"Throughput Rate (After): {throughput_after:.1f}s"
+                worksheet[
+                    f'A{current_row}'] = f"Throughput Rate (After): {throughput_after:.1f}s"
                 worksheet[f'A{current_row}'].font = Font(bold=True)
                 current_row += 1
 
-        # 13.6. Required Minutes (for By Target method)
+        # 13.6. Required Minutes (for By Target and By Target Direct methods)
         req_min_before = calc.get('before_metrics', {}).get('required_minutes')
         req_min_after = calc.get('required_minutes')
-        if pitch_time_source_tag == "By Target" and (req_min_before is not None or req_min_after is not None):
+        if (pitch_time_source_tag == "By Target" or pitch_time_source_tag == "By Target Direct") and (
+                req_min_before is not None or req_min_after is not None):
             if req_min_before is not None:
-                worksheet[f'A{current_row}'] = f"Required Minutes (Before): {req_min_before:.1f} min"
+                worksheet[
+                    f'A{current_row}'] = f"Required Minutes (Before): {req_min_before:.1f} min"
                 worksheet[f'A{current_row}'].font = Font(bold=True)
                 current_row += 1
             if req_min_after is not None:
-                worksheet[f'A{current_row}'] = f"Required Minutes (After): {req_min_after:.1f} min"
+                worksheet[
+                    f'A{current_row}'] = f"Required Minutes (After): {req_min_after:.1f} min"
                 worksheet[f'A{current_row}'].font = Font(bold=True)
                 current_row += 1
 
@@ -1381,15 +1408,25 @@ def recalculate():
         operations = calc["operations"]
 
         # Determine pitch time method based on what parameters are provided
-        if manual_pitch_time is not None:
-            pitch_time_method = "manual"
+        pitch_time_method = data.get("pitch_time_method")
+        if not pitch_time_method:
+            if manual_pitch_time is not None:
+                pitch_time_method = "manual"
+            elif production_target is not None and shift_time_minutes is not None:
+                if calc.get("pitch_time_source") == "By Target Direct":
+                    pitch_time_method = "target_direct"
+                else:
+                    pitch_time_method = "target"
+            else:
+                pitch_time_method = "auto"
+
+        if pitch_time_method == "manual":
             # Clear other parameters for manual method
             production_target = None
             shift_time_minutes = None
             tolerance = None  # No tolerance for manual method
             # Keep efficiency and available time for manual method
-        elif production_target is not None and shift_time_minutes is not None:
-            pitch_time_method = "target"
+        elif pitch_time_method in ("target", "target_direct"):
             # Clear efficiency and available time for target method
             efficiency_percentage = None
             available_time_minutes = None
@@ -1450,8 +1487,10 @@ def recalculate():
                 "target_recheck_messages", [])
             response_data["result"]["target_recheck_summary"] = result.get(
                 "target_recheck_summary")
-            response_data["result"]["throughput_rate"] = result.get("throughput_rate")
-            response_data["result"]["required_minutes"] = result.get("required_minutes")
+            response_data["result"]["throughput_rate"] = result.get(
+                "throughput_rate")
+            response_data["result"]["required_minutes"] = result.get(
+                "required_minutes")
 
         return jsonify(response_data)
     except Exception as e:
@@ -1647,727 +1686,6 @@ def layout(session_id: str = None):
 
 
 # ============== HTML TEMPLATES ==============
-
-LAYOUT_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Layout View</title>
-    <style>
-        :root {
-            --bg: #0f1419;
-            --surface: #1a2332;
-            --surface-2: #243044;
-            --border: rgba(255, 255, 255, 0.08);
-            --text: #e8edf4;
-            --text-muted: #8b9cb3;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-            --success: #22c55e;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-            --radius: 12px;
-            --radius-sm: 8px;
-            --transition: 0.2s ease;
-        }
-
-        [data-theme="light"] {
-            --bg: #f1f5f9;
-            --surface: #ffffff;
-            --surface-2: #f8fafc;
-            --border: rgba(15, 23, 42, 0.1);
-            --text: #0f172a;
-            --text-muted: #64748b;
-            --accent: #2563eb;
-            --accent-hover: #1d4ed8;
-            --success: #16a34a;
-            --warning: #d97706;
-            --danger: #dc2626;
-            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
-        }
-
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            transition: background var(--transition), color var(--transition);
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 32px 24px;
-        }
-
-        /* Header */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 40px;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-
-        .header-content {
-            flex: 1;
-        }
-
-        .header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        [data-theme="light"] .header h1 {
-            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .header p {
-            color: var(--text-muted);
-            font-size: 14px;
-        }
-
-        .theme-toggle {
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-muted);
-            transition: all var(--transition);
-        }
-
-        .theme-toggle:hover {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
-        }
-
-        /* Target Workflow Notifications */
-        .target-workflow-notice-container {
-            margin-bottom: 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .target-validation-banner {
-            padding: 14px 18px;
-            border-radius: var(--radius-sm);
-            font-size: 14px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            box-shadow: var(--shadow);
-            transition: all var(--transition);
-        }
-
-        .target-validation-banner.success {
-            background: rgba(34, 197, 94, 0.12);
-            border: 1px solid var(--success);
-            color: var(--success);
-        }
-
-        .target-validation-banner.warning {
-            background: rgba(245, 158, 11, 0.12);
-            border: 1px solid var(--warning);
-            color: var(--warning);
-        }
-
-        .target-recheck-banner {
-            padding: 12px 18px;
-            border-radius: var(--radius-sm);
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text);
-            box-shadow: var(--shadow);
-            flex-wrap: wrap;
-        }
-
-        /* Metrics Grid */
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 16px;
-            margin-bottom: 32px;
-        }
-
-        .metric-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            transition: all var(--transition);
-        }
-
-        .metric-card:hover {
-            border-color: rgba(59, 130, 246, 0.3);
-            transform: translateY(-2px);
-        }
-
-        .metric-card .label {
-            font-size: 12px;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-        }
-
-        .metric-card .value {
-            font-size: 24px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .pitch-source-badge {
-            font-size: 10px;
-            font-weight: 600;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .pitch-source-badge.manual {
-            background: rgba(59, 130, 246, 0.2);
-            color: #3b82f6;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-        }
-
-        .pitch-source-badge.auto {
-            background: rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            border: 1px solid rgba(34, 197, 94, 0.3);
-        }
-
-        .pitch-source-badge.target {
-            background: rgba(245, 158, 11, 0.2);
-            color: #f59e0b;
-            border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-
-        .tolerance-badge {
-            font-size: 10px;
-            font-weight: 600;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .tolerance-badge.manual {
-            background: rgba(59, 130, 246, 0.2);
-            color: #3b82f6;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-        }
-
-        .metric-card .value {
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-            color: var(--text);
-        }
-
-        .metric-card.highlight .value {
-            color: var(--accent);
-        }
-
-        /* Table Section */
-        .table-section {
-            position: relative;
-        }
-
-        .table-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-
-        .table-section h3 {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin: 0;
-        }
-
-        .table-wrapper {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: hidden;
-            box-shadow: var(--shadow);
-        }
-
-        .table-scroll {
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            table-layout: fixed;
-        }
-
-        th {
-            background: var(--surface-2);
-            padding: 12px 6px;
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            color: var(--text-muted);
-            text-align: center;
-            border-bottom: 1px solid var(--border);
-            white-space: normal;
-            line-height: 1.3;
-        }
-
-        th:nth-child(1) { width: 7%; }  /* Workstation */
-        th:nth-child(2) { width: 7%; }  /* Serial/Id */
-        th:nth-child(3) { width: 16%; } /* Operations */
-        th:nth-child(4) { width: 9%; }  /* Machine */
-        th:nth-child(5) { width: 9%; }  /* Predecessor */
-        th:nth-child(6) { width: 9%; }  /* Basic Time */
-        th:nth-child(7) { width: 11%; } /* Combined Basic Time */
-        th:nth-child(8) { width: 9%; }  /* Balancing SAM */
-        th:nth-child(9) { width: 6%; }  /* M/P */
-        th:nth-child(10) { width: 10%; } /* Pitch Time / Pitch Time (Auto) */
-        th:nth-child(11) { width: 8%; } /* UCL */
-        th:nth-child(12) { width: 8%; } /* LCL */
-        th:nth-child(13) { width: 10%; } /* Status */
-
-        td {
-            padding: 12px 8px;
-            border-bottom: 1px solid var(--border);
-            color: var(--text);
-            font-variant-numeric: tabular-nums;
-            text-align: center;
-            vertical-align: middle;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            white-space: normal;
-        }
-
-        .smart-break-cell {
-            white-space: pre-wrap;
-            line-height: 1.4;
-            word-break: break-word;
-        }
-
-        tbody tr:hover {
-            background: rgba(59, 130, 246, 0.06);
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            min-width: 60px;
-            white-space: nowrap;
-        }
-
-        .status-ok {
-            background: rgba(34, 197, 94, 0.15);
-            color: var(--success);
-        }
-
-        .status-ucl {
-            background: rgba(239, 68, 68, 0.15);
-            color: var(--danger);
-        }
-
-        .status-lcl {
-            background: rgba(245, 158, 11, 0.15);
-            color: var(--warning);
-        }
-
-        /* Export Buttons */
-        .export-buttons {
-            display: flex;
-            gap: 8px;
-        }
-
-        .export-button, .export-buttons button, .export-buttons a {
-            background: var(--surface-2);
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 8px 16px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all var(--transition);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            text-decoration: none;
-        }
-
-        .export-button:hover, .export-buttons button:hover, .export-buttons a:hover {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-
-        .export-button svg, .export-buttons button svg, .export-buttons a svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        /* Status Section */
-        .status {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
-            text-align: center;
-            margin-top: 40px;
-        }
-
-        .status p {
-            color: var(--text-muted);
-            font-size: 16px;
-        }
-
-        .status-link {
-            color: var(--accent);
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .status-link:hover {
-            text-decoration: underline;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 16px 12px;
-                max-width: 100%;
-            }
-
-            .header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 16px;
-            }
-
-            .header h1 {
-                font-size: 20px;
-            }
-
-            .header p {
-                font-size: 12px;
-            }
-
-            .metrics-grid {
-                grid-template-columns: repeat(2, 1fr);
-                gap: 12px;
-            }
-
-            .metric-card {
-                padding: 16px;
-            }
-
-            .metric-card .value {
-                font-size: 20px;
-            }
-
-            .table-section h3 {
-                font-size: 12px;
-            }
-
-            .table-wrapper {
-                border-radius: 8px;
-            }
-
-            .table-scroll {
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-
-            table {
-                font-size: 11px;
-                min-width: 800px;
-            }
-
-            th {
-                padding: 10px 4px;
-                font-size: 9px;
-                line-height: 1.2;
-            }
-
-            td {
-                padding: 10px 4px;
-                font-size: 10px;
-            }
-
-            .status-badge {
-                padding: 4px 8px;
-                font-size: 10px;
-                min-width: 50px;
-            }
-
-            .export-buttons {
-                flex-direction: column;
-            }
-
-            .export-buttons button, .export-buttons a {
-                padding: 8px 12px;
-                font-size: 11px;
-            }
-
-            .table-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 12px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="header-content">
-                <h1>Layout View</h1>
-                <p>Detailed line balancing report table</p>
-            </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <a href="/" class="export-button" style="text-decoration: none; display: flex; align-items: center; gap: 6px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                    </svg>
-                    Home
-                </a>
-                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
-            </div>
-        </div>
-
-        {% if has_data %}
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">After Balancing</h3>
-            <div class="export-buttons">
-                <button onclick="exportFile('xlsx', '{{ session_id }}')">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Excel
-                </button>
-            </div>
-        </div>
-
-        <div class="metrics-grid">
-            {% if result.production_target %}
-            <div class="metric-card">
-                <div class="label">Customer Demand</div>
-                <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
-            </div>
-            {% endif %}
-            {% if result.shift_time_minutes %}
-            <div class="metric-card">
-                <div class="label">Available Time</div>
-                <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-            </div>
-            {% endif %}
-            {% if result.efficiency_percentage and result.available_time_minutes %}
-            <div class="metric-card">
-                <div class="label">Required Efficiency</div>
-                <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
-            </div>
-            {% endif %}
-            <div class="metric-card">
-                <div class="label">Composite Operations</div>
-                <div class="value">{{ result.workstations|length }}</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">SAM<br></div>
-                <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Manpower<br></div>
-                <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
-            </div>
-        </div>
-
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="label">{% if result.pitch_time_source == "manual" %}Takt Time{% elif result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
-                <div class="value">
-                    {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
-                    {% if result.pitch_time_source == "manual" %}
-                    <span class="pitch-source-badge manual">Manual</span>
-                    {% elif result.pitch_time_source == "By Target" %}
-                    <span class="pitch-source-badge target">By Target</span>
-                    {% else %}
-                    <span class="pitch-source-badge auto">Auto</span>
-                    {% endif %}
-                </div>
-            </div>
-            {% if result.pitch_time_source == "By Target" and result.auto_pitch_time is defined %}
-            <div class="metric-card">
-                <div class="label">Pitch Time</div>
-                <div class="value">{{ "%.1f"|format(result.auto_pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
-                    <span class="pitch-source-badge auto">Auto</span>
-                </div>
-            </div>
-            {% endif %}
-            {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
-            <div class="metric-card">
-                <div class="label">Tolerance</div>
-                <div class="value">
-                    {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
-                    {% if result.tolerance * 100 != 15.0 %}
-                    <span class="tolerance-badge manual">Manual</span>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="metric-card">
-                <div class="label">UCL</div>
-                <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
-            </div>
-            <div class="metric-card">
-                <div class="label">LCL</div>
-                <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
-            </div>
-            {% endif %}
-        </div>
-
-
-        <div class="table-section">
-            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;">Line Balancing Report</h3>
-            <div class="table-wrapper">
-                <div class="table-scroll">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Composite Operations</th>
-                                <th>Serial/Id</th>
-                                <th>Operations</th>
-                                <th>Machine</th>
-                                <th>Predecessor</th>
-                                <th>Basic<br>Time</th>
-                                <th>Combined Basic<br>Time</th>
-                                <th>Balancing<br>SAM</th>
-                                <th>M/P</th>
-                                <th>{% if result.pitch_time_source == "manual" %}Takt Time{% elif result.pitch_time_source == "By Target" %}Pitch Time (Auto){% else %}Pitch Time{% endif %}</th>
-                                {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
-                                <th>UCL</th>
-                                <th>LCL</th>
-                                {% endif %}
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in rows %}
-                            <tr>
-                                <td>{{ row['Composite Operations'] }}</td>
-                                <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
-                                <td class="smart-break-cell">{{ row['Operations'] }}</td>
-                                <td class="smart-break-cell">{{ row['Machine'] }}</td>
-                                <td class="smart-break-cell">{{ row['Predecessor'] }}</td>
-                                <td class="smart-break-cell">{{ row['Basic Time'] }}</td>
-                                <td>{{ row['Combined Basic Time'] }}</td>
-                                <td>{{ row['Balancing SAM'] }}</td>
-                                <td>{{ row['M/P'] }}</td>
-                                <td>{% if result.pitch_time_source == "manual" %}{{ row['Takt Time'] }}{% elif result.pitch_time_source == "By Target" %}{{ row['Pitch Time (Auto)'] }}{% else %}{{ row['Pitch Time'] }}{% endif %}</td>
-                                {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
-                                <td>{{ row['UCL'] }}</td>
-                                <td>{{ row['LCL'] }}</td>
-                                {% endif %}
-                                <td>
-                                    {% if 'OK' in row['Status'] %}
-                                        <span class="status-badge status-ok">OK</span>
-                                    {% elif 'UCL' in row['Status'] or 'Target' in row['Status'] %}
-                                        <span class="status-badge status-ucl">{% if 'Target' in row['Status'] %}> Target{% else %}> UCL{% endif %}</span>
-                                    {% else %}
-                                        <span class="status-badge status-lcl">< LCL</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        {% else %}
-        <div class="status">
-            <p>Layout view - detailed line balancing report table</p>
-            <p style="margin-top: 10px; font-size: 14px;">
-                <a href="/" class="status-link">Load a calculation from the main view</a> to display the layout
-            </p>
-        </div>
-        {% endif %}
-    </div>
-
-    <script>
-        // Theme Toggle
-        function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme') || 'dark';
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            // Show what you're switching TO (opposite of current/new theme)
-            // Update all theme toggle buttons on the page
-            document.querySelectorAll('.theme-toggle').forEach(button => {
-                button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
-            });
-        }
-
-        // Restore theme on load
-        window.addEventListener('DOMContentLoaded', function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            document.documentElement.setAttribute('data-theme', savedTheme);
-            // Show what you're switching TO (opposite of current theme)
-            // Update all theme toggle buttons on the page
-            document.querySelectorAll('.theme-toggle').forEach(button => {
-                button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
-            });
-        });
-
-        // Export function
-        function exportFile(format, sessionId) {
-            window.location.href = `/api/export/${format}/${sessionId}`;
-        }
-    </script>
-</body>
-</html>
-"""
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -3309,6 +2627,7 @@ HTML_TEMPLATE = """
                 <div class="field">
                     <label>Time Method</label>
                     <select name="pitch_time_method" id="pitch_time_method" onchange="togglePitchTimeInput()">
+                        <option value="target_direct">Takt time (By target direct)</option>
                         <option value="target">Takt time (By target)</option>
                         <option value="manual">Takt time (Manual)</option>
                         <option value="auto">Pitch time (Auto)</option>
@@ -3331,11 +2650,11 @@ HTML_TEMPLATE = """
                     <input type="number" name="shift_time" id="shift_time_input" value="420" placeholder="Shift duration in minutes" min="0" step="1">
                 </div>
                 <div class="field" id="efficiency_field">
-                    <label>Required Efficiency %</label>
+                    <label>Required Efficiency (Optional)</label>
                     <input type="number" name="efficiency" id="efficiency_input" value="" placeholder="Required efficiency (0-100)" min="0" max="100" step="0.1">
                 </div>
                 <div class="field" id="available_time_field">
-                    <label>Available Time</label>
+                    <label>Available Time (Optional)</label>
                     <input type="number" name="available_time" id="available_time_input" value="420" placeholder="Available time in minutes" min="0" step="1">
                 </div>
                 <div class="field">
@@ -3367,7 +2686,7 @@ HTML_TEMPLATE = """
                     </svg>
                     {% endif %}
                     <div>
-                        <strong>Demand Target Validation:</strong> <span id="targetValidationText">{{ result.target_validation_message }}</span>
+                        <strong>Customer Demand Validation:</strong> <span id="targetValidationText">{{ result.target_validation_message }}</span>
                     </div>
                 </div>
             </div>
@@ -3400,7 +2719,7 @@ HTML_TEMPLATE = """
                     <div class="label">SAM<br><br></div>
                     <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
                 </div>
-                {% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" %}
+                {% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target" or result.pitch_time_source == "By Target Direct" %}
                 <div class="metric-card">
                     <div class="label">Takt Time<br><br></div>
                     <div class="value">
@@ -3409,6 +2728,8 @@ HTML_TEMPLATE = """
                         <span class="pitch-source-badge manual">Manual</span>
                         {% elif result.pitch_time_source == "By Target" %}
                         <span class="pitch-source-badge target">By Target</span>
+                        {% elif result.pitch_time_source == "By Target Direct" %}
+                        <span class="pitch-source-badge target">By Target Direct</span>
                         {% endif %}
                     </div>
                 </div>
@@ -3586,7 +2907,7 @@ HTML_TEMPLATE = """
                                     </td>
                                 </tr>
                                 {% endif %}
-                                {% if result.pitch_time_source == "By Target" and result.throughput_rate is not none and result.before_metrics.throughput_rate is not none %}
+                                {% if (result.pitch_time_source == "By Target" or result.pitch_time_source == "By Target Direct") and result.throughput_rate is not none and result.before_metrics.throughput_rate is not none %}
                                 <tr>
                                     <td class="metric-name">Throughput Rate</td>
                                     <td class="before-cell">
@@ -3598,7 +2919,7 @@ HTML_TEMPLATE = """
                                     </td>
                                 </tr>
                                 {% endif %}
-                                {% if result.pitch_time_source == "By Target" and result.required_minutes is not none and result.before_metrics.required_minutes is not none %}
+                                {% if (result.pitch_time_source == "By Target" or result.pitch_time_source == "By Target Direct") and result.required_minutes is not none and result.before_metrics.required_minutes is not none %}
                                 <tr>
                                     <td class="metric-name">Required Minutes</td>
                                     <td class="before-cell">
@@ -3733,7 +3054,7 @@ HTML_TEMPLATE = """
                 if (!availableTimeInput.value) {
                     availableTimeInput.value = '420';
                 }
-            } else if (method === 'target') {
+            } else if (method === 'target' || method === 'target_direct') {
                 pitchTimeField.style.display = 'none';
                 pitchTimeInput.required = false;
                 pitchTimeInput.value = '';
@@ -3743,11 +3064,11 @@ HTML_TEMPLATE = """
                 if (!shiftTimeInput.value) {
                     shiftTimeInput.value = '420';
                 }
-                // Hide tolerance field for target method
+                // Hide tolerance field for target/target_direct methods
                 toleranceField.style.display = 'none';
                 toleranceInput.required = false;
                 toleranceInput.value = '';
-                // Hide efficiency and available time fields for target method
+                // Hide efficiency and available time fields for target/target_direct methods
                 efficiencyField.style.display = 'none';
                 efficiencyInput.required = false;
                 efficiencyInput.value = '';
@@ -4014,7 +3335,7 @@ HTML_TEMPLATE = """
             
             // Determine pitch time label based on source
             let pitchTimeLabel, pitchTimeValue;
-            if (chartData.pitch_time_source === "manual") {
+            if (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target Direct") {
                 pitchTimeLabel = 'Takt Time';
                 pitchTimeValue = chartData.pitch_time;
             } else if (chartData.pitch_time_source === "By Target") {
@@ -4037,8 +3358,8 @@ HTML_TEMPLATE = """
                 }
             ];
             
-            // Add pitch time line for manual method, or auto pitch time for auto/By Target methods
-            if (chartData.pitch_time_source === "manual") {
+            // Add pitch time line for manual/By Target Direct method, or auto pitch time for auto/By Target methods
+            if (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target Direct") {
                 datasets.push({
                     label: `${pitchTimeLabel} ${pitchTimeValue.toFixed(1)}s`,
                     data: Array(chartData.operations.length).fill(pitchTimeValue),
@@ -4213,7 +3534,7 @@ HTML_TEMPLATE = """
             
             // Determine pitch time label based on source
             let pitchTimeLabel, pitchTimeValue;
-            if (chartData.pitch_time_source === "manual") {
+            if (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target Direct") {
                 pitchTimeLabel = 'Takt Time';
                 pitchTimeValue = chartData.pitch_time;
             } else if (chartData.pitch_time_source === "By Target") {
@@ -4236,8 +3557,8 @@ HTML_TEMPLATE = """
                 }
             ];
             
-            // Add pitch time line for manual method, or auto pitch time for auto/By Target methods
-            if (chartData.pitch_time_source === "manual") {
+            // Add pitch time line for manual/By Target Direct method, or auto pitch time for auto/By Target methods
+            if (chartData.pitch_time_source === "manual" || chartData.pitch_time_source === "By Target Direct") {
                 datasets.push({
                     label: `${pitchTimeLabel} ${pitchTimeValue.toFixed(1)}s`,
                     data: Array(chartData.workstations.length).fill(pitchTimeValue),
@@ -4394,6 +3715,731 @@ HTML_TEMPLATE = """
                     }
                 }
             });
+        }
+    </script>
+</body>
+</html>
+"""
+
+LAYOUT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Layout View</title>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --surface-2: #243044;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e8edf4;
+            --text-muted: #8b9cb3;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --transition: 0.2s ease;
+        }
+
+        [data-theme="light"] {
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --border: rgba(15, 23, 42, 0.1);
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: background var(--transition), color var(--transition);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-content {
+            flex: 1;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        [data-theme="light"] .header h1 {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .theme-toggle {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all var(--transition);
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
+        /* Target Workflow Notifications */
+        .target-workflow-notice-container {
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .target-validation-banner {
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: var(--shadow);
+            transition: all var(--transition);
+        }
+
+        .target-validation-banner.success {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .target-validation-banner.warning {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid var(--warning);
+            color: var(--warning);
+        }
+
+        .target-recheck-banner {
+            padding: 12px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            box-shadow: var(--shadow);
+            flex-wrap: wrap;
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: all var(--transition);
+        }
+
+        .metric-card:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .metric-card .label {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .metric-card .value {
+            font-size: 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pitch-source-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .pitch-source-badge.manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .pitch-source-badge.auto {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .pitch-source-badge.target {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .tolerance-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tolerance-badge.manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .metric-card .value {
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+
+        .metric-card.highlight .value {
+            color: var(--accent);
+        }
+
+        /* Table Section */
+        .table-section {
+            position: relative;
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .table-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 0;
+        }
+
+        .table-wrapper {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            table-layout: fixed;
+        }
+
+        th {
+            background: var(--surface-2);
+            padding: 12px 6px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            white-space: normal;
+            line-height: 1.3;
+        }
+
+        th:nth-child(1) { width: 7%; }  /* Workstation */
+        th:nth-child(2) { width: 7%; }  /* Serial/Id */
+        th:nth-child(3) { width: 16%; } /* Operations */
+        th:nth-child(4) { width: 9%; }  /* Machine */
+        th:nth-child(5) { width: 9%; }  /* Predecessor */
+        th:nth-child(6) { width: 9%; }  /* Basic Time */
+        th:nth-child(7) { width: 11%; } /* Combined Basic Time */
+        th:nth-child(8) { width: 9%; }  /* Balancing SAM */
+        th:nth-child(9) { width: 6%; }  /* M/P */
+        th:nth-child(10) { width: 10%; } /* Pitch Time / Pitch Time (Auto) */
+        th:nth-child(11) { width: 8%; } /* UCL */
+        th:nth-child(12) { width: 8%; } /* LCL */
+        th:nth-child(13) { width: 10%; } /* Status */
+
+        td {
+            padding: 12px 8px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+            text-align: center;
+            vertical-align: middle;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+        }
+
+        .smart-break-cell {
+            white-space: pre-wrap;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        tbody tr:hover {
+            background: rgba(59, 130, 246, 0.06);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            min-width: 60px;
+            white-space: nowrap;
+        }
+
+        .status-ok {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .status-ucl {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        .status-lcl {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+        }
+
+        /* Export Buttons */
+        .export-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .export-button, .export-buttons button, .export-buttons a {
+            background: var(--surface-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .export-button:hover, .export-buttons button:hover, .export-buttons a:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .export-button svg, .export-buttons button svg, .export-buttons a svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* Status Section */
+        .status {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        .status p {
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+
+        .status-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .status-link:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px 12px;
+                max-width: 100%;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .header p {
+                font-size: 12px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+
+            .metric-card {
+                padding: 16px;
+            }
+
+            .metric-card .value {
+                font-size: 20px;
+            }
+
+            .table-section h3 {
+                font-size: 12px;
+            }
+
+            .table-wrapper {
+                border-radius: 8px;
+            }
+
+            .table-scroll {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table {
+                font-size: 11px;
+                min-width: 800px;
+            }
+
+            th {
+                padding: 10px 4px;
+                font-size: 9px;
+                line-height: 1.2;
+            }
+
+            td {
+                padding: 10px 4px;
+                font-size: 10px;
+            }
+
+            .status-badge {
+                padding: 4px 8px;
+                font-size: 10px;
+                min-width: 50px;
+            }
+
+            .export-buttons {
+                flex-direction: column;
+            }
+
+            .export-buttons button, .export-buttons a {
+                padding: 8px 12px;
+                font-size: 11px;
+            }
+
+            .table-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <h1>Layout View</h1>
+                <p>Detailed line balancing report table</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <a href="/" class="export-button" style="text-decoration: none; display: flex; align-items: center; gap: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                    Home
+                </a>
+                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+            </div>
+        </div>
+
+        {% if has_data %}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">After Balancing</h3>
+            <div class="export-buttons">
+                <button onclick="exportFile('xlsx', '{{ session_id }}')">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Excel
+                </button>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            {% if result.production_target %}
+            <div class="metric-card">
+                <div class="label">Customer Demand</div>
+                <div class="value">{{ result.production_target }}<span style="font-size: 12px; color: var(--text-muted);"> units</span></div>
+            </div>
+            {% endif %}
+            {% if result.shift_time_minutes %}
+            <div class="metric-card">
+                <div class="label">Available Time</div>
+                <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+            </div>
+            {% endif %}
+            {% if result.efficiency_percentage and result.available_time_minutes %}
+            <div class="metric-card">
+                <div class="label">Required Efficiency</div>
+                <div class="value">{{ "%.1f"|format(result.efficiency_percentage) }}<span style="font-size: 12px; color: var(--text-muted);">%</span></div>
+            </div>
+            {% endif %}
+            <div class="metric-card">
+                <div class="label">Composite Operations</div>
+                <div class="value">{{ result.workstations|length }}</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">SAM<br></div>
+                <div class="value">{{ "%.1f"|format(result.total_basic_time) }}<span style="font-size: 12px; color: var(--text-muted);"> min</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Manpower<br></div>
+                <div class="value">{{ result.workstations|map(attribute='manpower')|sum }}</div>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="label">{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target Direct" or result.pitch_time_source == "By Target" %}Takt Time{% else %}Pitch Time{% endif %}</div>
+                <div class="value">
+                    {{ "%.1f"|format(result.pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
+                    {% if result.pitch_time_source == "manual" %}
+                    <span class="pitch-source-badge manual">Manual</span>
+                    {% elif result.pitch_time_source == "By Target" %}
+                    <span class="pitch-source-badge target">By Target</span>
+                    {% elif result.pitch_time_source == "By Target Direct" %}
+                    <span class="pitch-source-badge target">By Target Direct</span>
+                    {% else %}
+                    <span class="pitch-source-badge auto">Auto</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if result.pitch_time_source == "By Target" and result.auto_pitch_time is defined %}
+            <div class="metric-card">
+                <div class="label">Pitch Time</div>
+                <div class="value">{{ "%.1f"|format(result.auto_pitch_time) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span>
+                    <span class="pitch-source-badge auto">Auto</span>
+                </div>
+            </div>
+            {% endif %}
+            {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
+            <div class="metric-card">
+                <div class="label">Tolerance</div>
+                <div class="value">
+                    {{ "%.1f"|format(result.tolerance * 100) }}<span style="font-size: 12px; color: var(--text-muted);">%</span>
+                    {% if result.tolerance * 100 != 15.0 %}
+                    <span class="tolerance-badge manual">Manual</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="label">UCL</div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">LCL</div>
+                <div class="value">{{ "%.1f"|format(result.lcl) }}<span style="font-size: 12px; color: var(--text-muted);">sec</span></div>
+            </div>
+            {% endif %}
+        </div>
+
+
+        <div class="table-section">
+            <h3 style="font-size: 14px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;">Line Balancing Report</h3>
+            <div class="table-wrapper">
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Composite Operations</th>
+                                <th>Serial/Id</th>
+                                <th>Operations</th>
+                                <th>Machine</th>
+                                <th>Predecessor</th>
+                                <th>Basic<br>SAM</th>
+                                <th>Combined Basic<br>SAM</th>
+                                <th>Balanced<br>SAM</th>
+                                <th>M/P</th>
+                                <th>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target Direct" %}Takt Time{% elif result.pitch_time_source == "By Target" %}Pitch Time (Auto){% else %}Pitch Time{% endif %}</th>
+                                {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
+                                <th>UCL</th>
+                                <th>LCL</th>
+                                {% endif %}
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                <td>{{ row['Composite Operations'] }}</td>
+                                <td class="smart-break-cell">{{ row['Serial/Id'] }}</td>
+                                <td class="smart-break-cell">{{ row['Operations'] }}</td>
+                                <td class="smart-break-cell">{{ row['Machine'] }}</td>
+                                <td class="smart-break-cell">{{ row['Predecessor'] }}</td>
+                                <td class="smart-break-cell">{{ row['Basic Time'] }}</td>
+                                <td>{{ row['Combined Basic Time'] }}</td>
+                                <td>{{ row['Balancing SAM'] }}</td>
+                                <td>{{ row['M/P'] }}</td>
+                                <td>{% if result.pitch_time_source == "manual" or result.pitch_time_source == "By Target Direct" %}{{ row['Takt Time'] }}{% elif result.pitch_time_source == "By Target" %}{{ row['Pitch Time (Auto)'] }}{% else %}{{ row['Pitch Time'] }}{% endif %}</td>
+                                {% if result.pitch_time_source == "calculated" or result.pitch_time_source == "By Target" %}
+                                <td>{{ row['UCL'] }}</td>
+                                <td>{{ row['LCL'] }}</td>
+                                {% endif %}
+                                <td>
+                                    {% if '< Takt Time' in row['Status'] or row['Status'] == 'OK' %}
+                                        <span class="status-badge status-ok">{{ row['Status'] }}</span>
+                                    {% elif '> Takt Time' in row['Status'] %}
+                                        <span class="status-badge status-ucl">> Takt Time</span>
+                                    {% elif 'UCL' in row['Status'] or 'Target' in row['Status'] %}
+                                        <span class="status-badge status-ucl">{% if 'Target' in row['Status'] %}> Target{% else %}> UCL{% endif %}</span>
+                                    {% else %}
+                                        <span class="status-badge status-lcl">< LCL</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="status">
+            <p>Layout view - detailed line balancing report table</p>
+            <p style="margin-top: 10px; font-size: 14px;">
+                <a href="/" class="status-link">Load a calculation from the main view</a> to display the layout
+            </p>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            // Show what you're switching TO (opposite of current/new theme)
+            // Update all theme toggle buttons on the page
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+        }
+
+        // Restore theme on load
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            // Show what you're switching TO (opposite of current theme)
+            // Update all theme toggle buttons on the page
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+        });
+
+        // Export function
+        function exportFile(format, sessionId) {
+            window.location.href = `/api/export/${format}/${sessionId}`;
         }
     </script>
 </body>

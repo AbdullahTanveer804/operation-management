@@ -395,6 +395,22 @@ def calculate_all_before_metrics(
         # No tolerance bands for manual method
         ucl = None
         lcl = None
+    elif pitch_time_method == "target_direct":
+        if production_target is None or production_target <= 0:
+            raise ValueError(
+                "Production target must be provided and positive when method is 'target_direct'."
+            )
+        if shift_time_minutes is None or shift_time_minutes <= 0:
+            raise ValueError(
+                "Shift time must be provided and positive when method is 'target_direct'."
+            )
+        takt_time = calculate_pitch_time_from_target(production_target,
+                                                     shift_time_minutes)
+        pitch_time = takt_time
+        pitch_time_source = "By Target Direct"
+        # No tolerance bands or pitch time for target_direct method
+        ucl = None
+        lcl = None
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError(
@@ -436,16 +452,16 @@ def calculate_all_before_metrics(
     balance_delay = calculate_before_balance_delay(operations)
     smoothing_index = calculate_before_smoothing_index(operations)
 
-    # Calculate line efficiency if production target and shift time are provided and method is target
+    # Calculate line efficiency if production target and shift time are provided and method is target or target_direct
     line_efficiency = None
-    if pitch_time_method == "target" and production_target is not None and shift_time_minutes is not None:
+    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None and shift_time_minutes is not None:
         line_efficiency = calculate_before_line_efficiency(
             operations, production_target, shift_time_minutes)
 
-    # Calculate Throughput Rate and Required Minutes for By Target method
+    # Calculate Throughput Rate and Required Minutes for By Target / By Target Direct methods
     throughput_rate = None
     required_minutes = None
-    if pitch_time_method == "target":
+    if pitch_time_method == "target" or pitch_time_method == "target_direct":
         throughput_rate = calculate_before_throughput_rate(operations)
         if line_efficiency is not None:
             required_minutes = calculate_before_required_minutes(
