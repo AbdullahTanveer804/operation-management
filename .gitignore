@@ -25,5 +25,9 @@ data/*.csv
 
 line_balancer_test.py
 
+*.md
+*.pdf
+*.docx
+*.txt
 
 *WORKFLOW*
