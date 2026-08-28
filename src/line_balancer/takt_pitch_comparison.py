@@ -81,7 +81,8 @@ def balance_method_a_takt(sorted_operations: List[Operation],
             combined_time = current_op.basic_time + partner_op.basic_time
             if combined_time <= takt_time:
                 diff = abs(combined_time - takt_time)
-                valid_candidates.append((diff, partner_op.op_id, partner_op, combined_time))
+                valid_candidates.append(
+                    (diff, partner_op.op_id, partner_op, combined_time))
 
         if valid_candidates:
             valid_candidates.sort(key=lambda x: (x[0], x[1]))
@@ -171,8 +172,11 @@ def balance_method_b_pitch(
         for partner_op in compatible_ops:
             combined_time = current_op.basic_time + partner_op.basic_time
             if combined_time <= merge_ceiling:
-                diff_from_pitch = abs(combined_time - pitch_time) if pitch_time is not None else 0.0
-                valid_candidates.append((diff_from_pitch, partner_op.op_id, partner_op, combined_time))
+                diff_from_pitch = abs(
+                    combined_time -
+                    pitch_time) if pitch_time is not None else 0.0
+                valid_candidates.append((diff_from_pitch, partner_op.op_id,
+                                         partner_op, combined_time))
 
         if valid_candidates:
             # Pick best match: closest to Pitch Time (tie-breaker: lowest op_id)

@@ -1897,6 +1897,11 @@ def api_takt_vs_pitch_chart_data(session_id: str):
         times_a = [ws.balancing_sam for ws in ws_a]
         times_b = [ws.balancing_sam for ws in ws_b]
 
+        # Before-balancing operation times (each op is its own station)
+        sorted_ops = calc.get("sorted_operations", [])
+        before_times = [op.basic_time for op in sorted_ops]
+        before_labels = [f"Op {i+1}" for i in range(len(sorted_ops))]
+
         comp = calc.get("comparison", [])
         kpi_labels = [row["metric"] for row in comp]
         kpi_before = [row["before"] for row in comp]
@@ -1908,6 +1913,8 @@ def api_takt_vs_pitch_chart_data(session_id: str):
             "labels": labels,
             "method_a_times": times_a,
             "method_b_times": times_b,
+            "before_times": before_times,
+            "before_labels": before_labels,
             "takt_time": calc["takt_time"],
             "ucl": calc["ucl"],
             "lcl": calc["lcl"],
@@ -5464,6 +5471,165 @@ COMPARISON_TEMPLATE = """
             margin-top: 14px;
         }
 
+        /* ──── Understanding Production Optimization Charts Section ──── */
+        .opt-overview {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px 24px 20px 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+            min-height: calc(100vh - 180px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .opt-overview__title {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--text);
+            text-align: center;
+            margin: 0 0 4px 0;
+            letter-spacing: -0.4px;
+        }
+
+        [data-theme="light"] .opt-overview__title {
+            color: #1a2b49;
+        }
+
+        .opt-overview__subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: center;
+            margin: 0 0 20px 0;
+        }
+
+        .opt-overview__body {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        @media (max-width: 1100px) {
+            .opt-overview__body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Key / Legend Panel */
+        .opt-key-panel {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 20px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        [data-theme="light"] .opt-key-panel {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+        }
+
+        .opt-key-panel__heading {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text);
+            margin: 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .opt-key-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text);
+        }
+
+        .opt-key-item__icon {
+            flex-shrink: 0;
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            margin-top: 1px;
+        }
+
+        .opt-key-item__text strong {
+            color: var(--text);
+        }
+
+        .opt-key-item__text {
+            color: var(--text-muted);
+        }
+
+        /* Charts Grid (3 charts) */
+        .opt-charts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 16px;
+            min-height: 0;
+        }
+
+        .opt-charts-grid__top-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0;
+            min-height: 0;
+        }
+
+        .opt-charts-grid__bottom-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            min-height: 0;
+        }
+
+        @media (max-width: 800px) {
+            .opt-charts-grid__bottom-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .opt-chart-box {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px 14px 10px 14px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        [data-theme="light"] .opt-chart-box {
+            background: #ffffff;
+            border-color: #cbd5e1;
+        }
+
+        .opt-chart-box__label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+            margin: 0 0 8px 0;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+
+        .opt-chart-box__canvas-wrap {
+            position: relative;
+            flex: 1;
+            min-height: 140px;
+        }
+
         /* Visual Analysis & Grouped KPI 8-Card Section */
         .kpi-visual-container {
             padding: 12px 4px 8px 4px;
@@ -5872,6 +6038,71 @@ COMPARISON_TEMPLATE = """
             {% endif %}
         </div>
 
+        <!-- ── Understanding Production Optimization Charts ── -->
+        <div class="opt-overview" id="optOverviewSection">
+            <h2 class="opt-overview__title">Understanding Production Optimization Charts</h2>
+            <p class="opt-overview__subtitle">All details which are compulsory to understand the charts — consistent time scales across all three graphs for accurate visual comparison</p>
+
+            <div class="opt-overview__body">
+                <!-- Left: Key / Legend Panel -->
+                <div class="opt-key-panel">
+                    <h3 class="opt-key-panel__heading">Chart Reading Guide</h3>
+                    <div class="opt-key-item">
+                        <span class="opt-key-item__icon">📊</span>
+                        <span class="opt-key-item__text"><strong>Legend:</strong> Bars represent operator stations / workstations and their assigned time</span>
+                    </div>
+                    <div class="opt-key-item">
+                        <span class="opt-key-item__icon">📐</span>
+                        <span class="opt-key-item__text"><strong>Axes:</strong> X-axis = Stations · Y-axis = Time (seconds) — <em>same scale across all charts</em></span>
+                    </div>
+                    <div class="opt-key-item">
+                        <span class="opt-key-item__icon">⚙️</span>
+                        <span class="opt-key-item__text"><strong>Takt Time:</strong> {{ "%.1f"|format(result.takt_time) }}s — Maximum time per station to meet customer demand</span>
+                    </div>
+                    <div class="opt-key-item">
+                        <span class="opt-key-item__icon">📋</span>
+                        <span class="opt-key-item__text"><strong>IE Pitch Time:</strong> {{ "%.1f"|format(result.pitch_time) }}s — Industrial Engineering standard target time</span>
+                    </div>
+                    <div class="opt-key-item">
+                        <span class="opt-key-item__icon">📈</span>
+                        <span class="opt-key-item__text"><strong>UCL (Upper Control Limit):</strong> {{ "%.1f"|format(result.ucl) }}s — Pitch + 15% tolerance ceiling for Method B</span>
+                    </div>
+                    <div class="opt-key-item">
+                        <span class="opt-key-item__icon">🎯</span>
+                        <span class="opt-key-item__text"><strong>Primary Goal:</strong> Bars closer to the reference line = better balanced line with less idle time</span>
+                    </div>
+                </div>
+
+                <!-- Right: 3 Charts Grid -->
+                <div class="opt-charts-grid">
+                    <!-- Top: Before Balancing (full width) -->
+                    <div class="opt-charts-grid__top-row">
+                        <div class="opt-chart-box">
+                            <h4 class="opt-chart-box__label">Before Balancing</h4>
+                            <div class="opt-chart-box__canvas-wrap">
+                                <canvas id="optChartBefore"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Bottom: Method A & Method B side by side -->
+                    <div class="opt-charts-grid__bottom-row">
+                        <div class="opt-chart-box">
+                            <h4 class="opt-chart-box__label">Method A — Takt Time Balancing</h4>
+                            <div class="opt-chart-box__canvas-wrap">
+                                <canvas id="optChartMethodA"></canvas>
+                            </div>
+                        </div>
+                        <div class="opt-chart-box">
+                            <h4 class="opt-chart-box__label">Method B — IE Pitch Time Balancing</h4>
+                            <div class="opt-chart-box__canvas-wrap">
+                                <canvas id="optChartMethodB"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 3. Single Master Comparison Table -->
         <div class="comparison-section">
             <div class="section-header">
@@ -6276,6 +6507,9 @@ COMPARISON_TEMPLATE = """
             if (window.currentChartData && chartMode === 'profile_lines') {
                 renderProfileChart();
             }
+            if (window.currentChartData) {
+                renderOptOverviewCharts();
+            }
         }
 
         // Workstation Layout Switcher
@@ -6433,6 +6667,175 @@ COMPARISON_TEMPLATE = """
             });
         }
 
+        // ── Understanding Production Optimization Charts ──
+        let optChartBefore = null, optChartA = null, optChartB = null;
+
+        function renderOptOverviewCharts() {
+            if (!window.currentChartData) return;
+            const data = window.currentChartData;
+
+            const isDark = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark';
+            const textColor = isDark ? '#8b9cb3' : '#64748b';
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+
+            // Compute a shared Y max across all three charts
+            const allVals = [
+                ...(data.before_times || []),
+                ...(data.method_a_times || []),
+                ...(data.method_b_times || []),
+                data.takt_time || 0,
+                data.pitch_time || 0,
+                data.ucl || 0,
+            ];
+            const globalMax = Math.max(...allVals);
+            const yMax = Math.ceil(globalMax * 1.15);  // +15% headroom
+
+            // Destroy old instances
+            if (optChartBefore) { optChartBefore.destroy(); optChartBefore = null; }
+            if (optChartA) { optChartA.destroy(); optChartA = null; }
+            if (optChartB) { optChartB.destroy(); optChartB = null; }
+
+            // Common bar dataset factory
+            function makeBarDataset(label, values, color, bgColor) {
+                return {
+                    label: label,
+                    data: values,
+                    backgroundColor: bgColor,
+                    borderColor: color,
+                    borderWidth: 1,
+                    borderRadius: 3,
+                    barPercentage: 0.7,
+                    categoryPercentage: 0.8,
+                };
+            }
+
+            // Common options factory
+            function makeOpts(xLabel) {
+                return {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            align: 'end',
+                            labels: { color: textColor, font: { size: 11, weight: 600 }, boxWidth: 14, padding: 10 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + 's'; }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: xLabel, color: textColor, font: { size: 11 } },
+                            ticks: { color: textColor, font: { size: 10 } },
+                            grid: { display: false }
+                        },
+                        y: {
+                            title: { display: true, text: 'Time (seconds)', color: textColor, font: { size: 11 } },
+                            min: 0,
+                            max: yMax,
+                            ticks: { color: textColor, font: { size: 10 } },
+                            grid: { color: gridColor }
+                        }
+                    }
+                };
+            }
+
+            // Annotation line helper
+            function lineAnnotation(value, color, label, dashArr) {
+                return {
+                    type: 'line',
+                    yMin: value,
+                    yMax: value,
+                    borderColor: color,
+                    borderWidth: 2,
+                    borderDash: dashArr || [],
+                    label: {
+                        display: true,
+                        content: label,
+                        position: 'end',
+                        backgroundColor: color,
+                        color: '#fff',
+                        font: { size: 10, weight: 700 },
+                        padding: { x: 6, y: 3 },
+                        borderRadius: 3,
+                    }
+                };
+            }
+
+            // ─── 1. Before Balancing Chart ───
+            const ctxBefore = document.getElementById('optChartBefore');
+            if (ctxBefore) {
+                const beforeLabels = data.before_labels || data.before_times.map((_, i) => 'Op ' + (i + 1));
+                const optsBefore = makeOpts('Operations (Before Balancing)');
+                optsBefore.plugins.annotation = {
+                    annotations: {
+                        taktLine: lineAnnotation(data.takt_time, '#ef4444', 'Takt Time ' + data.takt_time.toFixed(1) + 's', [6, 4]),
+                        pitchLine: lineAnnotation(data.pitch_time, '#3b82f6', 'IE Pitch ' + data.pitch_time.toFixed(1) + 's', [4, 4]),
+                    }
+                };
+                optChartBefore = new Chart(ctxBefore, {
+                    type: 'bar',
+                    data: {
+                        labels: beforeLabels,
+                        datasets: [
+                            makeBarDataset('Operation Time', data.before_times, '#3882bd', 'rgba(56, 130, 189, 0.75)'),
+                        ]
+                    },
+                    options: optsBefore
+                });
+            }
+
+            // ─── 2. Method A — Takt Time Chart ───
+            const ctxA = document.getElementById('optChartMethodA');
+            if (ctxA) {
+                const labelsA = data.labels.slice(0, data.method_a_times.length);
+                const optsA = makeOpts('Workstations (Method A)');
+                optsA.plugins.annotation = {
+                    annotations: {
+                        taktLine: lineAnnotation(data.takt_time, '#ef4444', 'Takt Time ' + data.takt_time.toFixed(1) + 's', [6, 4]),
+                    }
+                };
+                optChartA = new Chart(ctxA, {
+                    type: 'bar',
+                    data: {
+                        labels: labelsA,
+                        datasets: [
+                            makeBarDataset('Balancing SAM', data.method_a_times, '#22c55e', 'rgba(34, 197, 94, 0.75)'),
+                        ]
+                    },
+                    options: optsA
+                });
+            }
+
+            // ─── 3. Method B — IE Pitch Chart ───
+            const ctxB = document.getElementById('optChartMethodB');
+            if (ctxB) {
+                const labelsB = data.labels.slice(0, data.method_b_times.length);
+                const optsB = makeOpts('Workstations (Method B)');
+                optsB.plugins.annotation = {
+                    annotations: {
+                        taktLine: lineAnnotation(data.takt_time, '#ef4444', 'Takt Time ' + data.takt_time.toFixed(1) + 's', [6, 4]),
+                        uclLine: lineAnnotation(data.ucl, '#f59e0b', 'UCL ' + data.ucl.toFixed(1) + 's', [4, 4]),
+                    }
+                };
+                optChartB = new Chart(ctxB, {
+                    type: 'bar',
+                    data: {
+                        labels: labelsB,
+                        datasets: [
+                            makeBarDataset('Balancing SAM', data.method_b_times, '#fb923c', 'rgba(251, 146, 60, 0.75)'),
+                        ]
+                    },
+                    options: optsB
+                });
+            }
+        }
+
         // Restore theme on load
         window.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -6448,6 +6851,8 @@ COMPARISON_TEMPLATE = """
                 .then(data => {
                     if (data.error) return;
                     window.currentChartData = data;
+                    // Render the overview optimization charts
+                    renderOptOverviewCharts();
                     if (chartMode === 'profile_lines') {
                         renderProfileChart();
                     }
