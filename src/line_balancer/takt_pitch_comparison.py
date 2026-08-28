@@ -46,7 +46,8 @@ from .before_balancing_metrics import (
 from .comparison_recommendations import generate_takt_vs_pitch_recommendations
 
 
-def balance_method_a_takt(sorted_operations: List[Operation], takt_time: float) -> List[Workstation]:
+def balance_method_a_takt(sorted_operations: List[Operation],
+                          takt_time: float) -> List[Workstation]:
     """
     Method A — Takt Time Balancing.
     
@@ -71,9 +72,9 @@ def balance_method_a_takt(sorted_operations: List[Operation], takt_time: float) 
             continue
 
         # Look for compatible partner to combine with
-        compatible_ops = find_compatible_operations(
-            current_op, sorted_operations, already_grouped_ids
-        )
+        compatible_ops = find_compatible_operations(current_op,
+                                                    sorted_operations,
+                                                    already_grouped_ids)
 
         merged = False
         if compatible_ops:
@@ -106,8 +107,10 @@ def balance_method_a_takt(sorted_operations: List[Operation], takt_time: float) 
             else:
                 # Single op exceeds Takt: manpower-split with strict mode
                 manpower, balancing_sam = find_best_manpower_split(
-                    current_op.basic_time, ucl=takt_time, lcl=None, strict=True
-                )
+                    current_op.basic_time,
+                    ucl=takt_time,
+                    lcl=None,
+                    strict=True)
                 ws = Workstation(
                     operations=[current_op],
                     manpower=manpower,
@@ -134,7 +137,7 @@ def balance_method_b_pitch(
       A merge may combine ops whose total exceeds UCL, as long as combined total <= Takt Time.
     - POST-MERGE CLASSIFICATION:
         * total <= UCL: normal ("OK")
-        * UCL < total <= Takt Time: leave standalone as-is, flag with status "Above UCL — review"
+        * UCL < total <= Takt Time: leave standalone as-is, flag with status "> UCL"
           (do NOT force-split these)
         * total > Takt Time: manpower-split via divide-and-increment strict mode.
     
@@ -157,9 +160,9 @@ def balance_method_b_pitch(
             continue
 
         # Look for compatible partner to combine with
-        compatible_ops = find_compatible_operations(
-            current_op, sorted_operations, already_grouped_ids
-        )
+        compatible_ops = find_compatible_operations(current_op,
+                                                    sorted_operations,
+                                                    already_grouped_ids)
 
         merged = False
         if compatible_ops:
@@ -173,7 +176,7 @@ def balance_method_b_pitch(
                 if combined_time <= ucl:
                     status = "OK"
                 else:
-                    status = "Above UCL — review"
+                    status = "> UCL"
 
                 ws = Workstation(
                     operations=[current_op, partner_op],
@@ -200,8 +203,8 @@ def balance_method_b_pitch(
                 statuses.append(status)
                 already_grouped_ids.add(current_op.op_id)
             elif total <= takt_time:
-                # UCL < total <= Takt Time: leave standalone as-is, flag "Above UCL — review"
-                status = "Above UCL — review"
+                # UCL < total <= Takt Time: leave standalone as-is, flag "> UCL"
+                status = "> UCL"
                 ws = Workstation(
                     operations=[current_op],
                     manpower=1,
@@ -213,12 +216,11 @@ def balance_method_b_pitch(
             else:
                 # total > Takt Time: manpower-split via divide-and-increment strict mode
                 manpower, balancing_sam = find_best_manpower_split(
-                    total, ucl=takt_time, lcl=None, strict=True
-                )
+                    total, ucl=takt_time, lcl=None, strict=True)
                 if balancing_sam <= ucl:
                     status = "OK"
                 elif balancing_sam <= takt_time:
-                    status = "Above UCL — review"
+                    status = "> UCL"
                 else:
                     status = "> Takt Time"
 
@@ -260,7 +262,7 @@ def calculate_smoothing_index_seconds(
     sum_squared_diff = 0.0
     for time_per_op, manpower in station_times_and_manpower:
         diff = c_max - time_per_op
-        sum_squared_diff += (diff ** 2) * manpower
+        sum_squared_diff += (diff**2) * manpower
     return math.sqrt(sum_squared_diff)
 
 
@@ -271,17 +273,18 @@ def build_method_report_df(
     ucl: Optional[float] = None,
     lcl: Optional[float] = None,
     statuses: Optional[List[str]] = None,
+    method_type: str = "method_a",
 ) -> pd.DataFrame:
     """
-    Build report DataFrame for Method A or Method B.
+    Build report DataFrame for Method A or Method B with requested column structure.
     """
     rows = []
-    include_ucl_lcl = ucl is not None and lcl is not None
 
     for ws_num, ws in enumerate(workstations, start=1):
         op_ids = " + ".join(str(op.op_id) for op in ws.operations)
         op_names = " + ".join(op.name for op in ws.operations)
-        basic_times = " + ".join(f"{op.basic_time:.1f}" for op in ws.operations)
+        basic_times = " + ".join(f"{op.basic_time:.1f}"
+                                 for op in ws.operations)
         machine_types = " + ".join(op.machine_type for op in ws.operations)
 
         op_predecessor_groups = []
@@ -289,7 +292,8 @@ def build_method_report_df(
             if op.predecessors:
                 op_preds = ", ".join(str(p) for p in sorted(op.predecessors))
                 op_predecessor_groups.append(op_preds)
-        predecessors = "+".join(op_predecessor_groups) if op_predecessor_groups else "-"
+        predecessors = "+".join(
+            op_predecessor_groups) if op_predecessor_groups else "-"
 
         combined_basic_time = ws.combined_basic_time
 
@@ -305,22 +309,44 @@ def build_method_report_df(
             "Machine": machine_types,
             "Predecessor": predecessors,
             "Basic Time": basic_times,
-            "Combined Basic Time": round(combined_basic_time, 1),
+            "Combined SAM": round(combined_basic_time, 1),
+            "Combined Basic Time": round(combined_basic_time,
+                                         1),  # Compatibility alias
             "Balancing SAM": round(ws.balancing_sam, 1),
             "M/P": ws.manpower,
-            time_column_name: round(time_column_value, 1) if time_column_value is not None else "",
-            "Status": status,
         }
 
-        if include_ucl_lcl:
-            row["UCL"] = round(ucl, 1) if ucl is not None else ""
+        if method_type == "method_a":
+            row["Takt Time"] = round(
+                time_column_value, 1) if time_column_value is not None else ""
+        else:
+            row["Pitch Time"] = round(
+                time_column_value, 1) if time_column_value is not None else ""
             row["LCL"] = round(lcl, 1) if lcl is not None else ""
+            row["UCL"] = round(ucl, 1) if ucl is not None else ""
 
+        row["Status"] = status
         rows.append(row)
 
     df = pd.DataFrame(rows)
     if not df.empty:
         df["Composite Operations"] = df["Composite Operations"].astype(int)
+        if method_type == "method_a":
+            cols = [
+                "Composite Operations", "Serial/Id", "Operations", "Machine",
+                "Predecessor", "Basic Time", "Combined SAM",
+                "Combined Basic Time", "Balancing SAM", "M/P", "Takt Time",
+                "Status"
+            ]
+        else:
+            cols = [
+                "Composite Operations", "Serial/Id", "Operations", "Machine",
+                "Predecessor", "Basic Time", "Combined SAM",
+                "Combined Basic Time", "Balancing SAM", "M/P", "Pitch Time",
+                "LCL", "UCL", "Status"
+            ]
+        existing_cols = [c for c in cols if c in df.columns]
+        df = df[existing_cols]
     return df
 
 
@@ -356,7 +382,8 @@ def calculate_takt_vs_pitch_comparison(
 
     # Core parameters
     available_time_seconds = shift_time_minutes * 60.0
-    takt_time = calculate_pitch_time_from_target(production_target, shift_time_minutes)
+    takt_time = calculate_pitch_time_from_target(production_target,
+                                                 shift_time_minutes)
     total_sam = sum(op.basic_time for op in sorted_ops)
 
     # Method B Pitch & UCL/LCL parameters
@@ -374,9 +401,11 @@ def calculate_takt_vs_pitch_comparison(
         ucl=None,
         lcl=None,
         statuses=["OK"] * len(workstations_a),
+        method_type="method_a",
     )
     rows_a = df_a.to_dict("records")
     for r in rows_a:
+        r["Combined SAM"] = f"{r['Combined SAM']:.1f}"
         r["Combined Basic Time"] = f"{r['Combined Basic Time']:.1f}"
         r["Balancing SAM"] = f"{r['Balancing SAM']:.1f}"
         if "Takt Time" in r and r["Takt Time"] != "":
@@ -386,8 +415,7 @@ def calculate_takt_vs_pitch_comparison(
     # 2. RUN METHOD B (IE Pitch Balancing)
     # ==========================================
     workstations_b, statuses_b = balance_method_b_pitch(
-        sorted_ops, pitch_time_b, ucl_b, lcl_b, takt_time
-    )
+        sorted_ops, pitch_time_b, ucl_b, lcl_b, takt_time)
     df_b = build_method_report_df(
         workstations_b,
         time_column_name="Pitch Time",
@@ -395,9 +423,11 @@ def calculate_takt_vs_pitch_comparison(
         ucl=ucl_b,
         lcl=lcl_b,
         statuses=statuses_b,
+        method_type="method_b",
     )
     rows_b = df_b.to_dict("records")
     for r in rows_b:
+        r["Combined SAM"] = f"{r['Combined SAM']:.1f}"
         r["Combined Basic Time"] = f"{r['Combined Basic Time']:.1f}"
         r["Balancing SAM"] = f"{r['Balancing SAM']:.1f}"
         if "Pitch Time" in r and r["Pitch Time"] != "":
@@ -415,27 +445,24 @@ def calculate_takt_vs_pitch_comparison(
     n_ops_before = len(sorted_ops)
     cycle_time_before = max(op.basic_time for op in sorted_ops)
     achievable_output_before = available_time_seconds / cycle_time_before if cycle_time_before > 0 else 0.0
-    efficiency_before = (
-        (total_sam / (n_ops_before * cycle_time_before)) * 100.0
-        if (n_ops_before > 0 and cycle_time_before > 0)
-        else 0.0
-    )
+    efficiency_before = ((total_sam /
+                          (n_ops_before * cycle_time_before)) * 100.0 if
+                         (n_ops_before > 0 and cycle_time_before > 0) else 0.0)
     balance_delay_before = 100.0 - efficiency_before
     # Smoothing index per operator in seconds: Cmax = cycle_time_before
     smoothing_index_seconds_before = calculate_smoothing_index_seconds(
-        [(op.basic_time, 1) for op in sorted_ops], cycle_time_before
-    )
-    labour_productivity_before = (
-        achievable_output_before / n_ops_before if n_ops_before > 0 else 0.0
-    )
+        [(op.basic_time, 1) for op in sorted_ops], cycle_time_before)
+    labour_productivity_before = (achievable_output_before /
+                                  n_ops_before if n_ops_before > 0 else 0.0)
 
     # Existing before metrics for completeness
-    existing_balancing_rate_before = calculate_before_balancing_rate(sorted_ops)
+    existing_balancing_rate_before = calculate_before_balancing_rate(
+        sorted_ops)
     existing_balance_delay_before = calculate_before_balance_delay(sorted_ops)
     existing_line_eff_before = calculate_before_line_efficiency(
-        sorted_ops, production_target, shift_time_minutes
-    )
-    existing_smoothing_index_min_before = calculate_before_smoothing_index(sorted_ops)
+        sorted_ops, production_target, shift_time_minutes)
+    existing_smoothing_index_min_before = calculate_before_smoothing_index(
+        sorted_ops)
 
     before_metrics = {
         "num_operations": n_ops_before,
@@ -462,23 +489,21 @@ def calculate_takt_vs_pitch_comparison(
     n_ops_a = sum(ws.manpower for ws in workstations_a)
     cycle_time_a = takt_time  # Fixed at Takt Time
     achievable_output_a = available_time_seconds / cycle_time_a if cycle_time_a > 0 else 0.0
-    efficiency_a = (
-        (total_sam / (n_ops_a * cycle_time_a)) * 100.0
-        if (n_ops_a > 0 and cycle_time_a > 0)
-        else 0.0
-    )
+    efficiency_a = ((total_sam / (n_ops_a * cycle_time_a)) * 100.0 if
+                    (n_ops_a > 0 and cycle_time_a > 0) else 0.0)
     balance_delay_a = 100.0 - efficiency_a
     smoothing_index_seconds_a = calculate_smoothing_index_seconds(
-        [(ws.balancing_sam, ws.manpower) for ws in workstations_a], cycle_time_a
-    )
+        [(ws.balancing_sam, ws.manpower) for ws in workstations_a],
+        cycle_time_a)
     labour_productivity_a = achievable_output_a / n_ops_a if n_ops_a > 0 else 0.0
 
     # Existing metrics for Method A
     existing_balancing_rate_a = calculate_line_balancing_rate(workstations_a)
-    existing_balance_delay_a = calculate_balance_delay(workstations_a, sorted_ops)
-    existing_line_eff_a = calculate_line_efficiency(
-        workstations_a, sorted_ops, production_target, shift_time_minutes
-    )
+    existing_balance_delay_a = calculate_balance_delay(workstations_a,
+                                                       sorted_ops)
+    existing_line_eff_a = calculate_line_efficiency(workstations_a, sorted_ops,
+                                                    production_target,
+                                                    shift_time_minutes)
     existing_smoothing_index_min_a = calculate_smoothing_index(workstations_a)
 
     method_a_metrics = {
@@ -509,29 +534,29 @@ def calculate_takt_vs_pitch_comparison(
 
     # --- METHOD B ---
     n_ops_b = sum(ws.manpower for ws in workstations_b)
-    cycle_time_b = max(ws.balancing_sam for ws in workstations_b) if workstations_b else 0.0
+    cycle_time_b = max(ws.balancing_sam
+                       for ws in workstations_b) if workstations_b else 0.0
     achievable_output_b = available_time_seconds / cycle_time_b if cycle_time_b > 0 else 0.0
-    efficiency_b = (
-        (total_sam / (n_ops_b * cycle_time_b)) * 100.0
-        if (n_ops_b > 0 and cycle_time_b > 0)
-        else 0.0
-    )
+    efficiency_b = ((total_sam / (n_ops_b * cycle_time_b)) * 100.0 if
+                    (n_ops_b > 0 and cycle_time_b > 0) else 0.0)
     balance_delay_b = 100.0 - efficiency_b
     smoothing_index_seconds_b = calculate_smoothing_index_seconds(
-        [(ws.balancing_sam, ws.manpower) for ws in workstations_b], cycle_time_b
-    )
+        [(ws.balancing_sam, ws.manpower) for ws in workstations_b],
+        cycle_time_b)
     labour_productivity_b = achievable_output_b / n_ops_b if n_ops_b > 0 else 0.0
 
     # Existing metrics for Method B
     existing_balancing_rate_b = calculate_line_balancing_rate(workstations_b)
-    existing_balance_delay_b = calculate_balance_delay(workstations_b, sorted_ops)
-    existing_line_eff_b = calculate_line_efficiency(
-        workstations_b, sorted_ops, production_target, shift_time_minutes
-    )
+    existing_balance_delay_b = calculate_balance_delay(workstations_b,
+                                                       sorted_ops)
+    existing_line_eff_b = calculate_line_efficiency(workstations_b, sorted_ops,
+                                                    production_target,
+                                                    shift_time_minutes)
     existing_smoothing_index_min_b = calculate_smoothing_index(workstations_b)
 
     # Review flagged count in Method B
-    review_flag_count = sum(1 for s in statuses_b if "review" in s.lower() or "Above UCL" in s)
+    review_flag_count = sum(1 for s in statuses_b
+                            if "review" in s.lower() or "Above UCL" in s)
 
     method_b_metrics = {
         "num_workstations": len(workstations_b),
@@ -589,7 +614,8 @@ def calculate_takt_vs_pitch_comparison(
             "key": "num_workstations",
             "unit": "stations",
             "higher_is_better": False,
-            "winner": get_winner(len(workstations_a), len(workstations_b), False),
+            "winner": get_winner(len(workstations_a), len(workstations_b),
+                                 False),
             "before": n_ops_before,
             "method_a": len(workstations_a),
             "method_b": len(workstations_b),
@@ -615,7 +641,8 @@ def calculate_takt_vs_pitch_comparison(
             "key": "achievable_output",
             "unit": "pcs/day",
             "higher_is_better": True,
-            "winner": get_winner(achievable_output_a, achievable_output_b, True),
+            "winner": get_winner(achievable_output_a, achievable_output_b,
+                                 True),
             "before": achievable_output_before,
             "method_a": achievable_output_a,
             "method_b": achievable_output_b,
@@ -650,30 +677,53 @@ def calculate_takt_vs_pitch_comparison(
             "formatted_method_b": f"{balance_delay_b:.1f}%",
         },
         {
-            "metric": "Smoothing Index",
-            "key": "smoothing_index_seconds",
-            "unit": "s",
-            "higher_is_better": False,
-            "winner": get_winner(smoothing_index_seconds_a, smoothing_index_seconds_b, False),
-            "before": smoothing_index_seconds_before,
-            "method_a": smoothing_index_seconds_a,
-            "method_b": smoothing_index_seconds_b,
-            "formatted_before": f"{smoothing_index_seconds_before:.2f} s",
-            "formatted_method_a": f"{smoothing_index_seconds_a:.2f} s",
-            "formatted_method_b": f"{smoothing_index_seconds_b:.2f} s",
+            "metric":
+            "Smoothing Index",
+            "key":
+            "smoothing_index_seconds",
+            "unit":
+            "s",
+            "higher_is_better":
+            False,
+            "winner":
+            get_winner(smoothing_index_seconds_a, smoothing_index_seconds_b,
+                       False),
+            "before":
+            smoothing_index_seconds_before,
+            "method_a":
+            smoothing_index_seconds_a,
+            "method_b":
+            smoothing_index_seconds_b,
+            "formatted_before":
+            f"{smoothing_index_seconds_before:.2f} s",
+            "formatted_method_a":
+            f"{smoothing_index_seconds_a:.2f} s",
+            "formatted_method_b":
+            f"{smoothing_index_seconds_b:.2f} s",
         },
         {
-            "metric": "Labour Productivity",
-            "key": "comparison_labour_productivity",
-            "unit": "pcs/operator",
-            "higher_is_better": True,
-            "winner": get_winner(labour_productivity_a, labour_productivity_b, True),
-            "before": labour_productivity_before,
-            "method_a": labour_productivity_a,
-            "method_b": labour_productivity_b,
-            "formatted_before": f"{labour_productivity_before:.1f} pcs/op",
-            "formatted_method_a": f"{labour_productivity_a:.1f} pcs/op",
-            "formatted_method_b": f"{labour_productivity_b:.1f} pcs/op",
+            "metric":
+            "Labour Productivity",
+            "key":
+            "comparison_labour_productivity",
+            "unit":
+            "pcs/operator",
+            "higher_is_better":
+            True,
+            "winner":
+            get_winner(labour_productivity_a, labour_productivity_b, True),
+            "before":
+            labour_productivity_before,
+            "method_a":
+            labour_productivity_a,
+            "method_b":
+            labour_productivity_b,
+            "formatted_before":
+            f"{labour_productivity_before:.1f} pcs/op",
+            "formatted_method_a":
+            f"{labour_productivity_a:.1f} pcs/op",
+            "formatted_method_b":
+            f"{labour_productivity_b:.1f} pcs/op",
         },
     ]
 

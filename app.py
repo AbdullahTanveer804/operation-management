@@ -109,7 +109,10 @@ def calculate_balance(operations: List[Operation],
         ucl = None
         lcl = None
         # Step 3: Balance operations into workstations
-        workstations = group_and_balance(sorted_ops, pitch_time, pitch_time, strict=True)
+        workstations = group_and_balance(sorted_ops,
+                                         pitch_time,
+                                         pitch_time,
+                                         strict=True)
     elif pitch_time_method == "target_direct":
         if production_target is None or production_target <= 0:
             raise ValueError(
@@ -126,7 +129,10 @@ def calculate_balance(operations: List[Operation],
         pitch_time_source = "By Target Direct"
         ucl = None
         lcl = None
-        workstations = group_and_balance(sorted_ops, pitch_time, pitch_time, strict=True)
+        workstations = group_and_balance(sorted_ops,
+                                         pitch_time,
+                                         pitch_time,
+                                         strict=True)
     elif pitch_time_method == "target":
         if production_target is None or production_target <= 0:
             raise ValueError(
@@ -217,7 +223,8 @@ def calculate_balance(operations: List[Operation],
 
     # Step 4.6: Calculate line efficiency (if production target and shift time provided and method is target or target_direct)
     line_efficiency = None
-    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None and shift_time_minutes is not None:
+    if (pitch_time_method == "target" or pitch_time_method == "target_direct"
+        ) and production_target is not None and shift_time_minutes is not None:
         if production_target <= 0 or shift_time_minutes <= 0:
             raise ValueError(
                 "Production target and shift time must be positive numbers.")
@@ -276,7 +283,8 @@ def calculate_balance(operations: List[Operation],
     # Step 4.12: Calculate Throughput Rate and Required Minutes for By Target / By Target Direct methods
     throughput_rate = None
     required_minutes = None
-    if (pitch_time_method == "target" or pitch_time_method == "target_direct") and production_target is not None:
+    if (pitch_time_method == "target" or pitch_time_method
+            == "target_direct") and production_target is not None:
         throughput_rate = calculate_throughput_rate(workstations)
         if line_efficiency is not None:
             required_minutes = calculate_required_minutes(
@@ -432,9 +440,9 @@ def generate_chart_image(workstations,
                   fontweight='500',
                   color='#333333')
     ax.set_title('After Balancing Chart',
-                  fontsize=14,
-                  fontweight='600',
-                  color='#3b82f6')
+                 fontsize=14,
+                 fontweight='600',
+                 color='#3b82f6')
 
     # Set x-axis ticks to workstation names
     ax.set_xticks(range(len(workstation_names)))
@@ -896,11 +904,14 @@ def export(format: str, session_id: str):
             filename = f"takt_vs_pitch_comparison_{session_id}.xlsx"
             return send_file(
                 excel_buf,
-                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                mimetype=
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 as_attachment=True,
                 download_name=filename,
             )
-        return jsonify({"error": "Only xlsx format supported for comparison export."}), 400
+        return jsonify(
+            {"error":
+             "Only xlsx format supported for comparison export."}), 400
 
     df = calc["report_df"]
 
@@ -1165,8 +1176,9 @@ def export(format: str, session_id: str):
         throughput_before = calc.get('before_metrics',
                                      {}).get('throughput_rate')
         throughput_after = calc.get('throughput_rate')
-        if (pitch_time_source_tag == "By Target" or pitch_time_source_tag == "By Target Direct") and (
-                throughput_before is not None or throughput_after is not None):
+        if (pitch_time_source_tag == "By Target" or pitch_time_source_tag
+                == "By Target Direct") and (throughput_before is not None
+                                            or throughput_after is not None):
             if throughput_before is not None:
                 worksheet[
                     f'A{current_row}'] = f"Throughput Rate (Before): {throughput_before:.1f}s"
@@ -1181,8 +1193,9 @@ def export(format: str, session_id: str):
         # 13.6. Required Minutes (for By Target and By Target Direct methods)
         req_min_before = calc.get('before_metrics', {}).get('required_minutes')
         req_min_after = calc.get('required_minutes')
-        if (pitch_time_source_tag == "By Target" or pitch_time_source_tag == "By Target Direct") and (
-                req_min_before is not None or req_min_after is not None):
+        if (pitch_time_source_tag == "By Target" or pitch_time_source_tag
+                == "By Target Direct") and (req_min_before is not None
+                                            or req_min_after is not None):
             if req_min_before is not None:
                 worksheet[
                     f'A{current_row}'] = f"Required Minutes (Before): {req_min_before:.1f} min"
@@ -1727,7 +1740,8 @@ def takt_vs_pitch():
                     error = "Production target must be a positive number."
                 else:
                     filepath = Path(file.filename)
-                    if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+                    if filepath.suffix.lower() not in (".csv", ".xlsx",
+                                                       ".xls"):
                         error = "File must be Excel (.xlsx, .xls) or CSV."
                     else:
                         temp_path = None
@@ -1752,12 +1766,14 @@ def takt_vs_pitch():
                                     operations,
                                     shift_time_minutes,
                                     production_target,
-                                    calc_method=calc_method if 'calc_method' in locals() else 'comparison'
-                                ) if 'calc_method' in locals() else calculate_takt_vs_pitch_comparison(
-                                    operations,
-                                    shift_time_minutes,
-                                    production_target,
-                                )
+                                    calc_method=calc_method
+                                    if 'calc_method' in locals() else
+                                    'comparison') if 'calc_method' in locals(
+                                    ) else calculate_takt_vs_pitch_comparison(
+                                        operations,
+                                        shift_time_minutes,
+                                        production_target,
+                                    )
                                 session_id = generate_session_id()
                                 store_calculation(session_id, result)
                         finally:
@@ -1791,20 +1807,25 @@ def api_takt_vs_pitch():
         if not file or file.filename == "":
             return jsonify({"error": "Please select a file to upload."}), 400
         if not shift_time_str or not production_target_str:
-            return jsonify({"error": "Shift time and production target are required."}), 400
+            return jsonify(
+                {"error":
+                 "Shift time and production target are required."}), 400
 
         shift_time_minutes = float(shift_time_str)
         production_target = int(production_target_str)
 
         if shift_time_minutes <= 0 or production_target <= 0:
-            return jsonify({"error": "Shift time and production target must be positive numbers."}), 400
+            return jsonify({
+                "error":
+                "Shift time and production target must be positive numbers."
+            }), 400
 
         temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(
-                    mode='wb',
-                    delete=False,
-                    suffix=Path(file.filename).suffix) as tmp:
+            with tempfile.NamedTemporaryFile(mode='wb',
+                                             delete=False,
+                                             suffix=Path(
+                                                 file.filename).suffix) as tmp:
                 file.save(tmp.name)
                 temp_path = tmp.name
 
@@ -1812,13 +1833,16 @@ def api_takt_vs_pitch():
             flagged = [op for op in operations if op.flagged]
             if flagged:
                 return jsonify({
-                    "error": "Validation errors in file",
-                    "flagged_operations": [{"op_id": op.op_id, "error": op.flagged} for op in flagged]
+                    "error":
+                    "Validation errors in file",
+                    "flagged_operations": [{
+                        "op_id": op.op_id,
+                        "error": op.flagged
+                    } for op in flagged]
                 }), 400
 
             result = calculate_takt_vs_pitch_comparison(
-                operations, shift_time_minutes, production_target
-            )
+                operations, shift_time_minutes, production_target)
             session_id = generate_session_id()
             store_calculation(session_id, result)
 
@@ -1834,10 +1858,14 @@ def api_takt_vs_pitch():
                 "total_sam": result["total_sam"],
                 "before": result["before"],
                 "method_a": {
-                    k: v for k, v in result["method_a"].items() if k not in ("report_df", "workstations")
+                    k: v
+                    for k, v in result["method_a"].items()
+                    if k not in ("report_df", "workstations")
                 },
                 "method_b": {
-                    k: v for k, v in result["method_b"].items() if k not in ("report_df", "workstations")
+                    k: v
+                    for k, v in result["method_b"].items()
+                    if k not in ("report_df", "workstations")
                 },
                 "comparison": result["comparison"],
                 "recommendations": result.get("recommendations", []),
@@ -1906,7 +1934,8 @@ def export_comparison(session_id: str, format: str = "xlsx"):
     filename = f"takt_vs_pitch_comparison_{session_id}.xlsx"
     return send_file(
         excel_buf,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mimetype=
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=filename,
     )
@@ -2883,7 +2912,7 @@ HTML_TEMPLATE = """
             <div class="header-actions">
                 <nav class="nav-tabs">
                     <a href="/" class="nav-tab active">Line Balancing</a>
-                    <a href="/takt-vs-pitch" class="nav-tab">⚡ Takt vs Pitch Comparison</a>
+                    <a href="/takt-vs-pitch" class="nav-tab">Takt vs Pitch Comparison</a>
                 </nav>
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
             </div>
@@ -5019,46 +5048,128 @@ COMPARISON_TEMPLATE = """
             margin-left: 2px;
         }
 
-        /* Side-by-side Tables Layout */
-        .tables-side-by-side {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 22px;
-            margin-bottom: 32px;
-        }
-
-        @media (max-width: 1180px) {
-            .tables-side-by-side {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .method-column {
+        /* Workstation Layout Single View & Switcher */
+        .layout-control-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 20px;
+            padding: 24px;
+            margin-bottom: 32px;
             box-shadow: var(--shadow);
+        }
+
+        .layout-control-header {
             display: flex;
-            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .layout-tabs {
+            display: flex;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            gap: 4px;
+        }
+
+        .layout-tab-btn {
+            padding: 7px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .layout-tab-btn:hover {
+            color: var(--text);
+        }
+
+        .layout-tab-btn.active {
+            background: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+        }
+
+        .method-layout-container {
+            animation: fadeIn 0.2s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .method-col-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 14px;
-            padding-bottom: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 14px;
             border-bottom: 1px solid var(--border);
             flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .method-header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .btn-method-switch {
+            display: inline-flex;
+            align-items: center;
             gap: 8px;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: inherit;
+            background: linear-gradient(135deg, #2563eb 0%, #059669 100%);
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-method-switch:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #047857 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(5, 150, 105, 0.4);
+        }
+
+        .btn-method-switch:active {
+            transform: translateY(0);
+        }
+
+        .switch-icon {
+            font-size: 14px;
+            display: inline-block;
+            transition: transform 0.3s ease;
+        }
+
+        .btn-method-switch:hover .switch-icon {
+            transform: rotate(180deg);
         }
 
         .method-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 5px 12px;
+            padding: 6px 14px;
             border-radius: 9999px;
             font-size: 13px;
             font-weight: 700;
@@ -5416,17 +5527,16 @@ COMPARISON_TEMPLATE = """
         <!-- Header -->
         <div class="header">
             <div class="header-content">
-                <h1>⚡ Takt vs Pitch Comparison</h1>
+                <h1>Takt vs Pitch Comparison</h1>
                 <p>Parallel balancing passes: Method A (Strict Takt Ceiling) vs Method B (IE Pitch ±15% Classification)</p>
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
                     <a href="/" class="nav-tab">Line Balancing</a>
-                    <a href="/compare" class="nav-tab active">⚡ Takt vs Pitch Comparison</a>
+                    <a href="/compare" class="nav-tab active">Takt vs Pitch Comparison</a>
                 </nav>
                 {% if session_id %}
                 <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
-                    <span>📥</span>
                     <span>Export Excel</span>
                 </a>
                 {% endif %}
@@ -5437,7 +5547,6 @@ COMPARISON_TEMPLATE = """
         <!-- 1. Input Config Card -->
         <form method="post" action="/compare" enctype="multipart/form-data" class="form-card">
             <h2>
-                <span>⚙️</span>
                 <span>Comparison Parameters</span>
             </h2>
             <div class="form-grid">
@@ -5454,7 +5563,7 @@ COMPARISON_TEMPLATE = """
                     <input type="number" name="production_target" value="{% if result %}{{ result.production_target }}{% else %}500{% endif %}" min="1" step="1" required>
                 </div>
                 <div class="field">
-                    <button type="submit">⚡ Run Comparison</button>
+                    <button type="submit">Run Comparison</button>
                 </div>
             </div>
         </form>
@@ -5469,7 +5578,6 @@ COMPARISON_TEMPLATE = """
         <!-- 2. Baseline "Before Balancing" KPI Card Row -->
         <div class="section-header">
             <div class="section-title">
-                <span>📋</span>
                 <span>Baseline Parameters & Control Limits</span>
             </div>
         </div>
@@ -5513,31 +5621,33 @@ COMPARISON_TEMPLATE = """
             {% if result.method_b.review_flag_count > 0 %}
             <div class="metric-card" style="border-color: rgba(245, 158, 11, 0.4);">
                 <div class="label" style="color: var(--warning);">Method B Flags</div>
-                <div class="value" style="color: var(--warning);">{{ result.method_b.review_flag_count }} <span class="status-badge status-warning">Above UCL — review</span></div>
+                <div class="value" style="color: var(--warning);">{{ result.method_b.review_flag_count }} <span class="status-badge status-warning">> UCL</span></div>
             </div>
             {% endif %}
         </div>
 
-        <!-- 3. Two Side-by-Side Balanced Workstation Tables -->
-        <div class="section-header">
-            <div class="section-title">
-                <span>📑</span>
-                <span>Workstation Layouts: After Takt Time vs After IE Pitch</span>
+        <!-- 3. Balanced Workstation Layout (Single View with Infinity Toggle Button) -->
+        <div class="layout-control-card">
+            <div class="section-header">
+                <div class="section-title">
+                    <span>Workstation Layout</span>
+                </div>
             </div>
-        </div>
-
-        <div class="tables-side-by-side">
-            <!-- Left Column: Method A (Takt Time) -->
-            <div class="method-column">
+            <!-- Method A View -->
+            <div id="methodViewA" class="method-layout-container">
                 <div class="method-col-header">
-                    <div>
+                    <div class="method-header-left">
+                        <!-- Switch Button on Left in front of Flag -->
                         <span class="method-badge badge-takt">Method A: After Takt Time</span>
-                        <div class="method-desc" style="margin-top: 4px;">Strict Takt Ceiling = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Zero relaxation · Strict divide-and-increment</div>
+                        <button type="button" class="btn-method-switch" onclick="setMethodLayout('B')" title="Switch to Method B">
+                            <span>Switch to Method B (IE Pitch)</span>
+                        </button>
                     </div>
+                    <div class="method-desc">Strict Takt = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Zero relaxation · Strict divide-and-increment</div>
                 </div>
 
                 <!-- Method A Mini KPI Row -->
-                <div class="mini-kpi-grid">
+                <div class="mini-kpi-grid" style="margin-bottom: 16px;">
                     <div class="mini-kpi">
                         <div class="k-lbl">Manpower</div>
                         <div class="k-val" style="color: #60a5fa;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
@@ -5567,8 +5677,10 @@ COMPARISON_TEMPLATE = """
                                 <th>Machine</th>
                                 <th>Predecessor</th>
                                 <th>Basic Time</th>
+                                <th>Combined SAM</th>
                                 <th>Balancing SAM</th>
                                 <th>M/P</th>
+                                <th>Takt Time</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
@@ -5581,8 +5693,10 @@ COMPARISON_TEMPLATE = """
                                 <td>{{ r['Machine'] }}</td>
                                 <td>{{ r['Predecessor'] }}</td>
                                 <td>{{ r['Basic Time'] }}</td>
+                                <td style="font-weight: 600;">{{ r['Combined SAM'] }}</td>
                                 <td style="font-weight: 700; color: #60a5fa;">{{ r['Balancing SAM'] }}</td>
                                 <td><strong>{{ r['M/P'] }}</strong></td>
+                                <td style="color: #60a5fa; font-weight: 600;">{{ r['Takt Time'] }}</td>
                                 <td><span class="status-badge status-ok">{{ r['Status'] }}</span></td>
                             </tr>
                             {% endfor %}
@@ -5591,17 +5705,21 @@ COMPARISON_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- Right Column: Method B (IE Pitch) -->
-            <div class="method-column">
+            <!-- Method B View -->
+            <div id="methodViewB" class="method-layout-container" style="display: none;">
                 <div class="method-col-header">
-                    <div>
+                    <div class="method-header-left">
+                        <!-- Switch Button on Left in front of Flag -->
                         <span class="method-badge badge-pitch">Method B: After IE Pitch</span>
-                        <div class="method-desc" style="margin-top: 4px;">Takt Merge Ceiling = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Pitch = {{ "%.1f"|format(result.pitch_time) }}s · UCL = {{ "%.1f"|format(result.ucl) }}s</div>
+                        <button type="button" class="btn-method-switch" onclick="setMethodLayout('A')" title="Switch to Method A">
+                            <span>Switch to Method A (Takt Time)</span>
+                        </button>
                     </div>
+                    <div class="method-desc">Takt Merge = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Pitch = {{ "%.1f"|format(result.pitch_time) }}s · UCL = {{ "%.1f"|format(result.ucl) }}s · LCL = {{ "%.1f"|format(result.lcl) }}s</div>
                 </div>
 
                 <!-- Method B Mini KPI Row -->
-                <div class="mini-kpi-grid">
+                <div class="mini-kpi-grid" style="margin-bottom: 16px;">
                     <div class="mini-kpi">
                         <div class="k-lbl">Manpower</div>
                         <div class="k-val" style="color: #34d399;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
@@ -5631,8 +5749,12 @@ COMPARISON_TEMPLATE = """
                                 <th>Machine</th>
                                 <th>Predecessor</th>
                                 <th>Basic Time</th>
+                                <th>Combined SAM</th>
                                 <th>Balancing SAM</th>
                                 <th>M/P</th>
+                                <th>Pitch Time</th>
+                                <th>LCL</th>
+                                <th>UCL</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
@@ -5646,8 +5768,12 @@ COMPARISON_TEMPLATE = """
                                 <td>{{ r['Machine'] }}</td>
                                 <td>{{ r['Predecessor'] }}</td>
                                 <td>{{ r['Basic Time'] }}</td>
+                                <td style="font-weight: 600;">{{ r['Combined SAM'] }}</td>
                                 <td style="font-weight: 700; color: #34d399;">{{ r['Balancing SAM'] }}</td>
                                 <td><strong>{{ r['M/P'] }}</strong></td>
+                                <td style="color: #34d399; font-weight: 600;">{{ r['Pitch Time'] }}</td>
+                                <td style="color: var(--text-muted);">{{ r['LCL'] }}</td>
+                                <td style="color: var(--text-muted);">{{ r['UCL'] }}</td>
                                 <td>
                                     {% if is_flagged %}
                                         <span class="status-badge status-warning">{{ r['Status'] }}</span>
@@ -5669,7 +5795,6 @@ COMPARISON_TEMPLATE = """
         <div class="comparison-section">
             <div class="section-header">
                 <div class="section-title">
-                    <span>📊</span>
                     <span>Master 8-KPI Side-by-Side Comparison</span>
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted);">
@@ -5713,12 +5838,11 @@ COMPARISON_TEMPLATE = """
         <div class="chart-card">
             <div class="section-header">
                 <div class="section-title">
-                    <span>📈</span>
                     <span>Visual Analysis & Comparison Curves</span>
                 </div>
                 <div class="chart-tabs">
-                    <button class="chart-tab-btn active" onclick="switchChartMode('grouped_bar', this)">📊 Grouped KPI Comparison</button>
-                    <button class="chart-tab-btn" onclick="switchChartMode('profile_lines', this)">📈 Balancing Profile Curves</button>
+                    <button class="chart-tab-btn active" onclick="switchChartMode('grouped_bar', this)">Grouped KPI Comparison</button>
+                    <button class="chart-tab-btn" onclick="switchChartMode('profile_lines', this)">Balancing Profile Curves</button>
                 </div>
             </div>
             <div class="chart-container">
@@ -5731,7 +5855,6 @@ COMPARISON_TEMPLATE = """
         <div class="rec-card">
             <div class="section-header" style="margin-bottom: 8px;">
                 <div class="section-title">
-                    <span>💡</span>
                     <span>Balancing Analysis & Recommendations</span>
                 </div>
             </div>
@@ -5750,7 +5873,6 @@ COMPARISON_TEMPLATE = """
         {% if session_id %}
         <div class="bottom-action-bar">
             <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-large-export">
-                <span>📥</span>
                 <span>Download Full Comparison Report (Excel .xlsx with Charts)</span>
             </a>
         </div>
@@ -5772,6 +5894,40 @@ COMPARISON_TEMPLATE = """
             });
             if (window.currentChartData) {
                 renderCurrentChart();
+            }
+        }
+
+        // Workstation Layout Switcher
+        let activeMethodLayout = 'A';
+
+        function toggleMethodLayout() {
+            if (activeMethodLayout === 'A') {
+                setMethodLayout('B');
+            } else {
+                setMethodLayout('A');
+            }
+        }
+
+        function setMethodLayout(method) {
+            activeMethodLayout = method;
+            const viewA = document.getElementById('methodViewA');
+            const viewB = document.getElementById('methodViewB');
+            const tabA = document.getElementById('tabBtnMethodA');
+            const tabB = document.getElementById('tabBtnMethodB');
+            const shiftText = document.getElementById('toggleShiftText');
+
+            if (method === 'A') {
+                if (viewA) viewA.style.display = 'block';
+                if (viewB) viewB.style.display = 'none';
+                if (tabA) tabA.classList.add('active');
+                if (tabB) tabB.classList.remove('active');
+                if (shiftText) shiftText.textContent = 'Switch to Method B (IE Pitch)';
+            } else {
+                if (viewA) viewA.style.display = 'none';
+                if (viewB) viewB.style.display = 'block';
+                if (tabB) tabB.classList.add('active');
+                if (tabA) tabA.classList.remove('active');
+                if (shiftText) shiftText.textContent = 'Switch to Method A (Takt Time)';
             }
         }
 

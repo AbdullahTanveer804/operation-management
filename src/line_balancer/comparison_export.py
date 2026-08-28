@@ -289,11 +289,14 @@ def generate_comparison_excel(calc: Dict) -> io.BytesIO:
 
     ws2['A1'] = "Method A (Takt Time) — Balanced Workstations"
     ws2['A1'].font = font_title
-    ws2.merge_cells('A1:J1')
+    ws2.merge_cells('A1:K1')
     ws2['A1'].alignment = Alignment(horizontal="center", vertical="center")
 
     df_a = calc["method_a"]["report_df"]
-    headers_a = list(df_a.columns)
+    cols_a = [c for c in ["Composite Operations", "Serial/Id", "Operations", "Machine", "Predecessor", "Basic Time", "Combined SAM", "Balancing SAM", "M/P", "Takt Time", "Status"] if c in df_a.columns]
+    df_a_export = df_a[cols_a] if not df_a.empty else df_a
+
+    headers_a = list(df_a_export.columns)
     for col_idx, col_name in enumerate(headers_a, 1):
         cell = ws2.cell(row=3, column=col_idx, value=col_name)
         cell.font = font_header
@@ -301,12 +304,12 @@ def generate_comparison_excel(calc: Dict) -> io.BytesIO:
         cell.border = cell_border
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    for row_idx, row_data in enumerate(df_a.values, 4):
+    for row_idx, row_data in enumerate(df_a_export.values, 4):
         for col_idx, val in enumerate(row_data, 1):
             cell = ws2.cell(row=row_idx, column=col_idx, value=val)
             cell.font = font_regular
             cell.border = cell_border
-            cell.alignment = Alignment(horizontal="center" if col_idx in (1, 3, 6, 7, 8) else "left", vertical="center")
+            cell.alignment = Alignment(horizontal="center" if col_idx in (1, 7, 8, 9, 10, 11) else "left", vertical="center")
             if row_idx % 2 == 1:
                 cell.fill = fill_zebra
 
@@ -323,11 +326,14 @@ def generate_comparison_excel(calc: Dict) -> io.BytesIO:
 
     ws3['A1'] = "Method B (IE Pitch) — Balanced Workstations"
     ws3['A1'].font = font_title
-    ws3.merge_cells('A1:J1')
+    ws3.merge_cells('A1:M1')
     ws3['A1'].alignment = Alignment(horizontal="center", vertical="center")
 
     df_b = calc["method_b"]["report_df"]
-    headers_b = list(df_b.columns)
+    cols_b = [c for c in ["Composite Operations", "Serial/Id", "Operations", "Machine", "Predecessor", "Basic Time", "Combined SAM", "Balancing SAM", "M/P", "Pitch Time", "LCL", "UCL", "Status"] if c in df_b.columns]
+    df_b_export = df_b[cols_b] if not df_b.empty else df_b
+
+    headers_b = list(df_b_export.columns)
     for col_idx, col_name in enumerate(headers_b, 1):
         cell = ws3.cell(row=3, column=col_idx, value=col_name)
         cell.font = font_header
@@ -335,12 +341,12 @@ def generate_comparison_excel(calc: Dict) -> io.BytesIO:
         cell.border = cell_border
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    for row_idx, row_data in enumerate(df_b.values, 4):
+    for row_idx, row_data in enumerate(df_b_export.values, 4):
         for col_idx, val in enumerate(row_data, 1):
             cell = ws3.cell(row=row_idx, column=col_idx, value=val)
             cell.font = font_regular
             cell.border = cell_border
-            cell.alignment = Alignment(horizontal="center" if col_idx in (1, 3, 6, 7, 8) else "left", vertical="center")
+            cell.alignment = Alignment(horizontal="center" if col_idx in (1, 7, 8, 9, 10, 11, 12, 13) else "left", vertical="center")
             if row_idx % 2 == 1:
                 cell.fill = fill_zebra
             # Highlight review flags in amber
