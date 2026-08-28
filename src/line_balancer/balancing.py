@@ -256,23 +256,30 @@ def group_and_balance(sorted_operations: List[Operation],
                                                     already_grouped_ids)
 
         if compatible_ops:
-            # ===== STEP 3a: Combine path (found compatible operation) =====
-            # Take the first compatible operation and combine with it
-            partner_op = compatible_ops[0]
-            combined_time = current_op.basic_time + partner_op.basic_time
+            # ===== STEP 3a: Combine path (search all candidates for Best-Fit in range) =====
+            target_pitch = (ucl + lcl) / 2.0 if (ucl is not None and lcl is not None) else (ucl if ucl is not None else lcl)
 
-            # Check if combined time is now acceptable
-            if is_within_range(combined_time, ucl, lcl, strict=strict):
-                # Perfect! Combined time fits in the band
-                ws = Workstation(operations=[current_op, partner_op],
+            valid_candidates = []
+            for partner_op in compatible_ops:
+                combined_time = current_op.basic_time + partner_op.basic_time
+                if is_within_range(combined_time, ucl, lcl, strict=strict):
+                    diff = abs(combined_time - target_pitch) if target_pitch is not None else 0.0
+                    valid_candidates.append((diff, partner_op.op_id, partner_op, combined_time))
+
+            if valid_candidates:
+                # Perfect! Combined time fits in the band (Best-Fit candidate)
+                valid_candidates.sort(key=lambda x: (x[0], x[1]))
+                _, _, best_partner, best_combined_time = valid_candidates[0]
+                ws = Workstation(operations=[current_op, best_partner],
                                  manpower=1,
-                                 balancing_sam=combined_time)
+                                 balancing_sam=best_combined_time)
                 workstations.append(ws)
                 already_grouped_ids.add(current_op.op_id)
-                already_grouped_ids.add(partner_op.op_id)
+                already_grouped_ids.add(best_partner.op_id)
             else:
-                # Combined time is still outside the band
-                # Split across multiple operators
+                # Combined time is still outside the band: take the first compatible operation and split
+                partner_op = compatible_ops[0]
+                combined_time = current_op.basic_time + partner_op.basic_time
                 manpower, balancing_sam = find_best_manpower_split(
                     combined_time, ucl, lcl, strict=strict)
                 ws = Workstation(operations=[current_op, partner_op],

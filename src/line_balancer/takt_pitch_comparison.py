@@ -3,7 +3,7 @@ Takt vs Pitch Comparison Balancing Mode
 
 Standalone comparison flow that runs two balancing passes in parallel:
 - Method A: Takt Time balancing (strict ceiling = Takt Time, no bands, strict divide-and-increment)
-- Method B: IE Pitch balancing (merge ceiling = Takt Time, UCL/LCL for post-merge flagging)
+- Method B: IE Pitch balancing (merge ceiling = UCL, single op split ceiling = Takt Time)
 
 Computes 6 new KPIs for Before, Method A, and Method B:
 1. Achievable Output = Available Time / Cycle Time
@@ -53,9 +53,9 @@ def balance_method_a_takt(sorted_operations: List[Operation],
     
     - Ceiling = Takt Time (Shift Time * 60 / Production Target)
     - No UCL/LCL bands. Strict mode — zero relaxation.
-    - Merge only adjacent/compatible same-machine-type ops up to Takt ceiling.
-    - Any single or combined op exceeding Takt gets manpower-split using
-      existing divide-and-increment (2, 3, 4...) logic in strict mode.
+    - Merge compatible ops up to Takt ceiling using best-fit matching.
+    - Any single op exceeding Takt gets manpower-split using
+      divide-and-increment (2, 3, 4...) logic in strict mode.
     
     Args:
         sorted_operations: Operations sorted by ID
@@ -76,25 +76,25 @@ def balance_method_a_takt(sorted_operations: List[Operation],
                                                     sorted_operations,
                                                     already_grouped_ids)
 
-        merged = False
-        if compatible_ops:
-            # Check if combining with the first compatible operation stays within Takt ceiling
-            partner_op = compatible_ops[0]
+        valid_candidates = []
+        for partner_op in compatible_ops:
             combined_time = current_op.basic_time + partner_op.basic_time
-
             if combined_time <= takt_time:
-                # Merge fits within Takt ceiling with M/P = 1
-                ws = Workstation(
-                    operations=[current_op, partner_op],
-                    manpower=1,
-                    balancing_sam=combined_time,
-                )
-                workstations.append(ws)
-                already_grouped_ids.add(current_op.op_id)
-                already_grouped_ids.add(partner_op.op_id)
-                merged = True
+                diff = abs(combined_time - takt_time)
+                valid_candidates.append((diff, partner_op.op_id, partner_op, combined_time))
 
-        if not merged:
+        if valid_candidates:
+            valid_candidates.sort(key=lambda x: (x[0], x[1]))
+            _, _, best_partner, best_combined_time = valid_candidates[0]
+            ws = Workstation(
+                operations=[current_op, best_partner],
+                manpower=1,
+                balancing_sam=best_combined_time,
+            )
+            workstations.append(ws)
+            already_grouped_ids.add(current_op.op_id)
+            already_grouped_ids.add(best_partner.op_id)
+        else:
             # Standalone op
             if current_op.basic_time <= takt_time:
                 ws = Workstation(
@@ -132,21 +132,21 @@ def balance_method_b_pitch(
     """
     Method B — IE Pitch Balancing.
     
-    - Ceiling for FLAGGING/classification = Pitch Time +/- 15% (UCL/LCL).
-    - MERGE ELIGIBILITY: Merging is NOT capped at UCL. Merge process uses TAKT TIME as hard ceiling.
-      A merge may combine ops whose total exceeds UCL, as long as combined total <= Takt Time.
-    - POST-MERGE CLASSIFICATION:
-        * total <= UCL: normal ("OK")
-        * UCL < total <= Takt Time: leave standalone as-is, flag with status "> UCL"
-          (do NOT force-split these)
-        * total > Takt Time: manpower-split via divide-and-increment strict mode.
+    - Ceiling for MERGING = UCL (Upper Control Limit = Pitch Time + 15%).
+      Evaluates all compatible candidates and selects the Best Match (closest to Pitch Time <= UCL).
+      Combined SAM of merged operations must be <= UCL with zero relaxation.
+      If no candidate satisfies combined SAM <= UCL, leave standalone.
+    - Ceiling for SPLITTING single operations = Takt Time (Shift Time * 60 / Production Target).
+      Every single operation remains standalone with 1 operator if <= Takt Time.
+      If single operation > Takt Time, add incremental manpower (2..n) until time/manpower <= Takt Time.
+    - Zero relaxation (strict mode) for both merging according to UCL and splitting according to Takt Time.
     
     Args:
         sorted_operations: Operations sorted by ID
         pitch_time: Auto Pitch Time in seconds
         ucl: Upper Control Limit in seconds
         lcl: Lower Control Limit in seconds
-        takt_time: Takt Time in seconds (used as merge ceiling and split trigger)
+        takt_time: Takt Time in seconds (used as split trigger for single ops)
         
     Returns:
         Tuple of (workstations, statuses)
@@ -154,6 +154,9 @@ def balance_method_b_pitch(
     workstations: List[Workstation] = []
     statuses: List[str] = []
     already_grouped_ids = set()
+
+    # Merge ceiling is strictly UCL (also capped at Takt Time for safety)
+    merge_ceiling = min(ucl, takt_time) if ucl is not None else takt_time
 
     for current_op in sorted_operations:
         if current_op.op_id in already_grouped_ids:
@@ -164,47 +167,33 @@ def balance_method_b_pitch(
                                                     sorted_operations,
                                                     already_grouped_ids)
 
-        merged = False
-        if compatible_ops:
-            # Check if combining with partner stays within TAKT TIME ceiling
-            partner_op = compatible_ops[0]
+        valid_candidates = []
+        for partner_op in compatible_ops:
             combined_time = current_op.basic_time + partner_op.basic_time
+            if combined_time <= merge_ceiling:
+                diff_from_pitch = abs(combined_time - pitch_time) if pitch_time is not None else 0.0
+                valid_candidates.append((diff_from_pitch, partner_op.op_id, partner_op, combined_time))
 
-            if combined_time <= takt_time:
-                # Merge allowed up to Takt Time!
-                # Post-merge classification determines status (flagging only)
-                if combined_time <= ucl:
-                    status = "OK"
-                else:
-                    status = "> UCL"
+        if valid_candidates:
+            # Pick best match: closest to Pitch Time (tie-breaker: lowest op_id)
+            valid_candidates.sort(key=lambda x: (x[0], x[1]))
+            _, _, best_partner, best_combined_time = valid_candidates[0]
 
-                ws = Workstation(
-                    operations=[current_op, partner_op],
-                    manpower=1,
-                    balancing_sam=combined_time,
-                )
-                workstations.append(ws)
-                statuses.append(status)
-                already_grouped_ids.add(current_op.op_id)
-                already_grouped_ids.add(partner_op.op_id)
-                merged = True
-
-        if not merged:
+            ws = Workstation(
+                operations=[current_op, best_partner],
+                manpower=1,
+                balancing_sam=best_combined_time,
+            )
+            workstations.append(ws)
+            statuses.append("OK")
+            already_grouped_ids.add(current_op.op_id)
+            already_grouped_ids.add(best_partner.op_id)
+        else:
             # Standalone operation
             total = current_op.basic_time
-            if total <= ucl:
-                status = "OK"
-                ws = Workstation(
-                    operations=[current_op],
-                    manpower=1,
-                    balancing_sam=total,
-                )
-                workstations.append(ws)
-                statuses.append(status)
-                already_grouped_ids.add(current_op.op_id)
-            elif total <= takt_time:
-                # UCL < total <= Takt Time: leave standalone as-is, flag "> UCL"
-                status = "> UCL"
+            if total <= takt_time:
+                # Single operation <= Takt Time: standalone with M/P = 1
+                status = "OK" if (ucl is None or total <= ucl) else "> UCL"
                 ws = Workstation(
                     operations=[current_op],
                     manpower=1,
@@ -214,10 +203,10 @@ def balance_method_b_pitch(
                 statuses.append(status)
                 already_grouped_ids.add(current_op.op_id)
             else:
-                # total > Takt Time: manpower-split via divide-and-increment strict mode
+                # Single operation > Takt Time: manpower-split via divide-and-increment strict mode (incremental 2..n)
                 manpower, balancing_sam = find_best_manpower_split(
                     total, ucl=takt_time, lcl=None, strict=True)
-                if balancing_sam <= ucl:
+                if ucl is not None and balancing_sam <= ucl:
                     status = "OK"
                 elif balancing_sam <= takt_time:
                     status = "> UCL"
