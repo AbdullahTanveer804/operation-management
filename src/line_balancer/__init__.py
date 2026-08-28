@@ -8,11 +8,14 @@ from .balancing import group_and_balance, is_within_range
 from .io_utils import read_operations
 from .metrics import calculate_line_balancing_rate, calculate_pitch_time as _calculate_pitch_time, calculate_tolerance_bands
 from .models import Operation, Workstation
-from .sequencing import sort_by_id
+from .takt_pitch_comparison import calculate_takt_vs_pitch_comparison
+from .comparison_recommendations import generate_takt_vs_pitch_recommendations
 
 # Re-export the current package API.
 Operation = Operation
 Workstation = Workstation
+calculate_takt_vs_pitch_comparison = calculate_takt_vs_pitch_comparison
+generate_takt_vs_pitch_recommendations = generate_takt_vs_pitch_recommendations
 
 
 @dataclass

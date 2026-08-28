@@ -30,6 +30,8 @@ from src.line_balancer.metrics import calculate_pitch_time, calculate_pitch_time
 from src.line_balancer.balancing import group_and_balance
 from src.line_balancer.report import build_report_dataframe, determine_status
 from src.line_balancer.before_balancing_metrics import calculate_all_before_metrics
+from src.line_balancer.takt_pitch_comparison import calculate_takt_vs_pitch_comparison
+from src.line_balancer.comparison_export import generate_comparison_excel
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max
@@ -888,6 +890,18 @@ def export(format: str, session_id: str):
     if not calc:
         return jsonify({"error": "Session not found"}), 404
 
+    if calc.get("method_a") and calc.get("method_b"):
+        if format == "xlsx":
+            excel_buf = generate_comparison_excel(calc)
+            filename = f"takt_vs_pitch_comparison_{session_id}.xlsx"
+            return send_file(
+                excel_buf,
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                as_attachment=True,
+                download_name=filename,
+            )
+        return jsonify({"error": "Only xlsx format supported for comparison export."}), 400
+
     df = calc["report_df"]
 
     if format == "xlsx":
@@ -1685,6 +1699,219 @@ def layout(session_id: str = None):
                                   rows=rows)
 
 
+@app.route("/compare", methods=["GET", "POST"])
+@app.route("/takt-vs-pitch", methods=["GET", "POST"])
+def takt_vs_pitch():
+    """Standalone Takt vs Pitch Comparison view."""
+    error = None
+    result = None
+    session_id = None
+
+    if request.method == "POST":
+        try:
+            file = request.files.get("file")
+            shift_time_str = request.form.get("shift_time", "")
+            production_target_str = request.form.get("production_target", "")
+
+            if not file or file.filename == "":
+                error = "Please select an Excel or CSV file to upload."
+            elif not shift_time_str or not production_target_str:
+                error = "Both Shift Time and Production Target are required."
+            else:
+                shift_time_minutes = float(shift_time_str)
+                production_target = int(production_target_str)
+
+                if shift_time_minutes <= 0:
+                    error = "Shift time must be a positive number."
+                elif production_target <= 0:
+                    error = "Production target must be a positive number."
+                else:
+                    filepath = Path(file.filename)
+                    if filepath.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+                        error = "File must be Excel (.xlsx, .xls) or CSV."
+                    else:
+                        temp_path = None
+                        try:
+                            with tempfile.NamedTemporaryFile(
+                                    mode='wb',
+                                    delete=False,
+                                    suffix=Path(file.filename).suffix) as tmp:
+                                file.save(tmp.name)
+                                temp_path = tmp.name
+
+                            operations = read_operations(temp_path)
+                            flagged = [op for op in operations if op.flagged]
+                            if flagged:
+                                error_list = "<br>".join([
+                                    f"Op {op.op_id}: {op.flagged}"
+                                    for op in flagged
+                                ])
+                                error = f"File has validation errors:<br>{error_list}"
+                            else:
+                                result = calculate_takt_vs_pitch_comparison(
+                                    operations,
+                                    shift_time_minutes,
+                                    production_target,
+                                    calc_method=calc_method if 'calc_method' in locals() else 'comparison'
+                                ) if 'calc_method' in locals() else calculate_takt_vs_pitch_comparison(
+                                    operations,
+                                    shift_time_minutes,
+                                    production_target,
+                                )
+                                session_id = generate_session_id()
+                                store_calculation(session_id, result)
+                        finally:
+                            if temp_path and os.path.exists(temp_path):
+                                try:
+                                    os.unlink(temp_path)
+                                except Exception:
+                                    pass
+        except Exception as e:
+            error = f"Error during calculation: {str(e)}"
+            import traceback
+            traceback.print_exc()
+
+    return render_template_string(
+        COMPARISON_TEMPLATE,
+        error=error,
+        result=result,
+        session_id=session_id,
+    )
+
+
+@app.route("/api/takt-vs-pitch", methods=["POST"])
+@app.route("/api/compare", methods=["POST"])
+def api_takt_vs_pitch():
+    """API endpoint for Takt vs Pitch comparison."""
+    try:
+        file = request.files.get("file")
+        shift_time_str = request.form.get("shift_time", "")
+        production_target_str = request.form.get("production_target", "")
+
+        if not file or file.filename == "":
+            return jsonify({"error": "Please select a file to upload."}), 400
+        if not shift_time_str or not production_target_str:
+            return jsonify({"error": "Shift time and production target are required."}), 400
+
+        shift_time_minutes = float(shift_time_str)
+        production_target = int(production_target_str)
+
+        if shift_time_minutes <= 0 or production_target <= 0:
+            return jsonify({"error": "Shift time and production target must be positive numbers."}), 400
+
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='wb',
+                    delete=False,
+                    suffix=Path(file.filename).suffix) as tmp:
+                file.save(tmp.name)
+                temp_path = tmp.name
+
+            operations = read_operations(temp_path)
+            flagged = [op for op in operations if op.flagged]
+            if flagged:
+                return jsonify({
+                    "error": "Validation errors in file",
+                    "flagged_operations": [{"op_id": op.op_id, "error": op.flagged} for op in flagged]
+                }), 400
+
+            result = calculate_takt_vs_pitch_comparison(
+                operations, shift_time_minutes, production_target
+            )
+            session_id = generate_session_id()
+            store_calculation(session_id, result)
+
+            # Prepare JSON response (exclude raw dataframe and workstation objects)
+            json_result = {
+                "session_id": session_id,
+                "shift_time_minutes": result["shift_time_minutes"],
+                "production_target": result["production_target"],
+                "takt_time": result["takt_time"],
+                "pitch_time": result["pitch_time"],
+                "ucl": result["ucl"],
+                "lcl": result["lcl"],
+                "total_sam": result["total_sam"],
+                "before": result["before"],
+                "method_a": {
+                    k: v for k, v in result["method_a"].items() if k not in ("report_df", "workstations")
+                },
+                "method_b": {
+                    k: v for k, v in result["method_b"].items() if k not in ("report_df", "workstations")
+                },
+                "comparison": result["comparison"],
+                "recommendations": result.get("recommendations", []),
+            }
+            return jsonify(json_result)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/takt-vs-pitch-chart-data/<session_id>")
+def api_takt_vs_pitch_chart_data(session_id: str):
+    """Return chart data for Takt vs Pitch Comparison."""
+    calc = get_calculation(session_id)
+    if not calc or "method_a" not in calc or "method_b" not in calc:
+        return jsonify({"error": "Calculation not found."}), 404
+
+    try:
+        ws_a = calc["method_a"]["workstations"]
+        ws_b = calc["method_b"]["workstations"]
+        max_len = max(len(ws_a), len(ws_b))
+        labels = [f"WS {i+1}" for i in range(max_len)]
+
+        times_a = [ws.balancing_sam for ws in ws_a]
+        times_b = [ws.balancing_sam for ws in ws_b]
+
+        comp = calc.get("comparison", [])
+        kpi_labels = [row["metric"] for row in comp]
+        kpi_before = [row["before"] for row in comp]
+        kpi_method_a = [row["method_a"] for row in comp]
+        kpi_method_b = [row["method_b"] for row in comp]
+        kpi_units = [row["unit"] for row in comp]
+
+        return jsonify({
+            "labels": labels,
+            "method_a_times": times_a,
+            "method_b_times": times_b,
+            "takt_time": calc["takt_time"],
+            "ucl": calc["ucl"],
+            "lcl": calc["lcl"],
+            "pitch_time": calc["pitch_time"],
+            "kpi_labels": kpi_labels,
+            "kpi_units": kpi_units,
+            "kpi_before": kpi_before,
+            "kpi_method_a": kpi_method_a,
+            "kpi_method_b": kpi_method_b,
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to build chart data: {str(e)}"}), 500
+
+
+@app.route("/api/export/compare/xlsx/<session_id>")
+@app.route("/api/export/compare/<format>/<session_id>")
+def export_comparison(session_id: str, format: str = "xlsx"):
+    """Export comparison results to Excel."""
+    calc = get_calculation(session_id)
+    if not calc or "method_a" not in calc or "method_b" not in calc:
+        return jsonify({"error": "Comparison session not found"}), 404
+
+    excel_buf = generate_comparison_excel(calc)
+    filename = f"takt_vs_pitch_comparison_{session_id}.xlsx"
+    return send_file(
+        excel_buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 # ============== HTML TEMPLATES ==============
 
 HTML_TEMPLATE = """
@@ -1800,6 +2027,45 @@ HTML_TEMPLATE = """
         .theme-toggle:hover {
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 6px;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+        }
+
+        .nav-tab {
+            padding: 6px 14px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .nav-tab:hover {
+            color: var(--text);
+        }
+
+        .nav-tab.active {
+            background: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
         }
 
         /* Metrics Grid */
@@ -2614,7 +2880,13 @@ HTML_TEMPLATE = """
                 <h1>Line Balancing Optimizer</h1>
                 <p>Upload operation data and configure parameters to optimize workstation balance</p>
             </div>
-            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+            <div class="header-actions">
+                <nav class="nav-tabs">
+                    <a href="/" class="nav-tab active">Line Balancing</a>
+                    <a href="/takt-vs-pitch" class="nav-tab">⚡ Takt vs Pitch Comparison</a>
+                </nav>
+                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+            </div>
         </div>
 
         <form method="post" enctype="multipart/form-data" class="form-card">
@@ -4434,13 +4706,1269 @@ LAYOUT_TEMPLATE = """
             // Update all theme toggle buttons on the page
             document.querySelectorAll('.theme-toggle').forEach(button => {
                 button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
-            });
-        });
-
         // Export function
         function exportFile(format, sessionId) {
             window.location.href = `/api/export/${format}/${sessionId}`;
         }
+    </script>
+</body>
+</html>
+"""
+
+COMPARISON_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Takt vs Pitch Comparison — Line Balancing</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --surface-2: #243044;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e8edf4;
+            --text-muted: #8b9cb3;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --warning: #f59e0b;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --transition: 0.2s ease;
+        }
+
+        [data-theme="light"] {
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --border: rgba(15, 23, 42, 0.1);
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: background var(--transition), color var(--transition);
+        }
+
+        .container {
+            max-width: 1480px;
+            margin: 0 auto;
+            padding: 32px 24px 64px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-content h1 {
+            font-size: 26px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-content p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 6px;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .nav-tab {
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-decoration: none;
+            border-radius: 6px;
+            transition: var(--transition);
+        }
+
+        .nav-tab:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .nav-tab.active {
+            color: #fff;
+            background: var(--accent);
+        }
+
+        .btn-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #10b981;
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            text-decoration: none;
+            transition: var(--transition);
+        }
+
+        .btn-export:hover {
+            background: #059669;
+        }
+
+        .theme-toggle {
+            padding: 8px 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+        }
+
+        /* Form Card */
+        .form-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 30px;
+            box-shadow: var(--shadow);
+        }
+
+        .form-card h2 {
+            font-size: 17px;
+            font-weight: 600;
+            margin-bottom: 18px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr auto;
+            gap: 16px;
+            align-items: end;
+        }
+
+        @media (max-width: 900px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .field input[type="file"],
+        .field input[type="number"] {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text);
+            outline: none;
+            transition: var(--transition);
+        }
+
+        .field input[type="file"] {
+            padding: 7px 10px;
+        }
+
+        .field input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        .form-card button[type="submit"] {
+            padding: 11px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .form-card button[type="submit"]:hover {
+            background: var(--accent-hover);
+        }
+
+        /* Error Box */
+        .error-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 16px 20px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        /* Metrics Card Rows */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .section-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            transition: var(--transition);
+        }
+
+        .metric-card:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .metric-card .label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .metric-card .value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .metric-card .unit {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-left: 2px;
+        }
+
+        /* Side-by-side Tables Layout */
+        .tables-side-by-side {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 22px;
+            margin-bottom: 32px;
+        }
+
+        @media (max-width: 1180px) {
+            .tables-side-by-side {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .method-column {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .method-col-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .method-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .badge-takt {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .badge-pitch {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .method-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .mini-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 700px) {
+            .mini-kpi-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .mini-kpi {
+            background: var(--surface-2);
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .mini-kpi .k-lbl {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .mini-kpi .k-val {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        /* Tables */
+        .table-scroll {
+            overflow-x: auto;
+            max-height: 480px;
+            overflow-y: auto;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            text-align: left;
+        }
+
+        .data-table th {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            font-weight: 600;
+            padding: 10px 12px;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: 9px 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        .data-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .row-flagged {
+            background: rgba(245, 158, 11, 0.08) !important;
+        }
+
+        .row-flagged:hover {
+            background: rgba(245, 158, 11, 0.12) !important;
+        }
+
+        /* Status Badges */
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .status-ok {
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status-warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        .status-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Master Comparison Section */
+        .comparison-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .comparison-table-wrapper {
+            overflow-x: auto;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .comparison-table th {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            font-weight: 700;
+            padding: 12px 16px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .comparison-table th:first-child {
+            text-align: left;
+        }
+
+        .comparison-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .comparison-table td:first-child {
+            text-align: left;
+        }
+
+        .comparison-table tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.015);
+        }
+
+        .metric-col-title {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .metric-unit {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-left: 4px;
+        }
+
+        .col-before {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .col-method-a {
+            color: #93c5fd;
+            font-weight: 600;
+        }
+
+        .col-method-b {
+            color: #6ee7b7;
+            font-weight: 600;
+        }
+
+        /* Winner Highlighting */
+        .cell-winner {
+            background: rgba(34, 197, 94, 0.15) !important;
+            color: #22c55e !important;
+            font-weight: 700 !important;
+        }
+
+        [data-theme="light"] .cell-winner {
+            background: #dcfce7 !important;
+            color: #15803d !important;
+        }
+
+        .winner-pill {
+            display: inline-block;
+            background: #22c55e;
+            color: #ffffff;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 4px;
+            margin-left: 6px;
+            vertical-align: middle;
+            text-transform: uppercase;
+        }
+
+        [data-theme="light"] .winner-pill {
+            background: #16a34a;
+        }
+
+        /* Chart Card */
+        .chart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .chart-tabs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .chart-tab-btn {
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface-2);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .chart-tab-btn:hover {
+            color: var(--text);
+            border-color: var(--accent);
+        }
+
+        .chart-tab-btn.active {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 420px;
+            width: 100%;
+            margin-top: 14px;
+        }
+
+        /* Recommendations Card */
+        .rec-card {
+            background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .rec-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .rec-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text);
+        }
+
+        .rec-bullet {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 18px;
+            line-height: 1.2;
+        }
+
+        /* Bottom Action Bar */
+        .bottom-action-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 24px;
+        }
+
+        .btn-large-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 32px;
+            font-size: 15px;
+            font-weight: 700;
+            background: #10b981;
+            color: #ffffff;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            text-decoration: none;
+            transition: var(--transition);
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-large-export:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <h1>⚡ Takt vs Pitch Comparison</h1>
+                <p>Parallel balancing passes: Method A (Strict Takt Ceiling) vs Method B (IE Pitch ±15% Classification)</p>
+            </div>
+            <div class="header-actions">
+                <nav class="nav-tabs">
+                    <a href="/" class="nav-tab">Line Balancing</a>
+                    <a href="/compare" class="nav-tab active">⚡ Takt vs Pitch Comparison</a>
+                </nav>
+                {% if session_id %}
+                <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
+                    <span>📥</span>
+                    <span>Export Excel</span>
+                </a>
+                {% endif %}
+                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+            </div>
+        </div>
+
+        <!-- 1. Input Config Card -->
+        <form method="post" action="/compare" enctype="multipart/form-data" class="form-card">
+            <h2>
+                <span>⚙️</span>
+                <span>Comparison Parameters</span>
+            </h2>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Upload Excel/CSV Operations File</label>
+                    <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+                </div>
+                <div class="field">
+                    <label>Available Time (Shift Duration in Minutes)</label>
+                    <input type="number" name="shift_time" value="{% if result %}{{ result.shift_time_minutes }}{% else %}420{% endif %}" min="1" step="1" required>
+                </div>
+                <div class="field">
+                    <label>Customer Demand (Production Target Units)</label>
+                    <input type="number" name="production_target" value="{% if result %}{{ result.production_target }}{% else %}500{% endif %}" min="1" step="1" required>
+                </div>
+                <div class="field">
+                    <button type="submit">⚡ Run Comparison</button>
+                </div>
+            </div>
+        </form>
+
+        {% if error %}
+        <div class="error-box">
+            <strong>Error:</strong> {{ error|safe }}
+        </div>
+        {% endif %}
+
+        {% if result %}
+        <!-- 2. Baseline "Before Balancing" KPI Card Row -->
+        <div class="section-header">
+            <div class="section-title">
+                <span>📋</span>
+                <span>Baseline Parameters & Control Limits</span>
+            </div>
+        </div>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="label">Customer Demand</div>
+                <div class="value">{{ result.production_target }} <span class="unit">units</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Available Shift Time</div>
+                <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }} <span class="unit">min</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Total Basic Time (SAM)</div>
+                <div class="value">{{ "%.1f"|format(result.total_sam / 60) }} <span class="unit">min</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Input Operations</div>
+                <div class="value">{{ result.before.num_operations }} <span class="unit">ops</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Baseline Manpower</div>
+                <div class="value">{{ result.before.total_manpower }} <span class="unit">operators</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Baseline Efficiency</div>
+                <div class="value">{{ "%.1f"|format(result.before.efficiency_balancing_rate) }} <span class="unit">%</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Takt Time (Method A Ceiling)</div>
+                <div class="value" style="color: #60a5fa;">{{ "%.1f"|format(result.takt_time) }} <span class="unit">s</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">IE Pitch Time (Method B Base)</div>
+                <div class="value" style="color: #34d399;">{{ "%.1f"|format(result.pitch_time) }} <span class="unit">s</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Method B UCL / LCL (±15%)</div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }} / {{ "%.1f"|format(result.lcl) }} <span class="unit">s</span></div>
+            </div>
+            {% if result.method_b.review_flag_count > 0 %}
+            <div class="metric-card" style="border-color: rgba(245, 158, 11, 0.4);">
+                <div class="label" style="color: var(--warning);">Method B Flags</div>
+                <div class="value" style="color: var(--warning);">{{ result.method_b.review_flag_count }} <span class="status-badge status-warning">Above UCL — review</span></div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 3. Two Side-by-Side Balanced Workstation Tables -->
+        <div class="section-header">
+            <div class="section-title">
+                <span>📑</span>
+                <span>Workstation Layouts: After Takt Time vs After IE Pitch</span>
+            </div>
+        </div>
+
+        <div class="tables-side-by-side">
+            <!-- Left Column: Method A (Takt Time) -->
+            <div class="method-column">
+                <div class="method-col-header">
+                    <div>
+                        <span class="method-badge badge-takt">Method A: After Takt Time</span>
+                        <div class="method-desc" style="margin-top: 4px;">Strict Takt Ceiling = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Zero relaxation · Strict divide-and-increment</div>
+                    </div>
+                </div>
+
+                <!-- Method A Mini KPI Row -->
+                <div class="mini-kpi-grid">
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Manpower</div>
+                        <div class="k-val" style="color: #60a5fa;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Stations</div>
+                        <div class="k-val">{{ result.method_a.num_workstations }}</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Efficiency</div>
+                        <div class="k-val" style="color: #4ade80;">{{ "%.1f"|format(result.method_a.efficiency_balancing_rate) }}%</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Output</div>
+                        <div class="k-val">{{ "%.0f"|format(result.method_a.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/day</span></div>
+                    </div>
+                </div>
+
+                <!-- Method A Workstation Table -->
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>WS #</th>
+                                <th>Serial/Id</th>
+                                <th>Operations</th>
+                                <th>Machine</th>
+                                <th>Predecessor</th>
+                                <th>Basic Time</th>
+                                <th>Balancing SAM</th>
+                                <th>M/P</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in result.method_a.rows %}
+                            <tr>
+                                <td><strong>{{ r['Composite Operations'] }}</strong></td>
+                                <td>{{ r['Serial/Id'] }}</td>
+                                <td>{{ r['Operations'] }}</td>
+                                <td>{{ r['Machine'] }}</td>
+                                <td>{{ r['Predecessor'] }}</td>
+                                <td>{{ r['Basic Time'] }}</td>
+                                <td style="font-weight: 700; color: #60a5fa;">{{ r['Balancing SAM'] }}</td>
+                                <td><strong>{{ r['M/P'] }}</strong></td>
+                                <td><span class="status-badge status-ok">{{ r['Status'] }}</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Column: Method B (IE Pitch) -->
+            <div class="method-column">
+                <div class="method-col-header">
+                    <div>
+                        <span class="method-badge badge-pitch">Method B: After IE Pitch</span>
+                        <div class="method-desc" style="margin-top: 4px;">Takt Merge Ceiling = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Pitch = {{ "%.1f"|format(result.pitch_time) }}s · UCL = {{ "%.1f"|format(result.ucl) }}s</div>
+                    </div>
+                </div>
+
+                <!-- Method B Mini KPI Row -->
+                <div class="mini-kpi-grid">
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Manpower</div>
+                        <div class="k-val" style="color: #34d399;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Stations</div>
+                        <div class="k-val">{{ result.method_b.num_workstations }}</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Efficiency</div>
+                        <div class="k-val" style="color: #4ade80;">{{ "%.1f"|format(result.method_b.efficiency_balancing_rate) }}%</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Output</div>
+                        <div class="k-val">{{ "%.0f"|format(result.method_b.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/day</span></div>
+                    </div>
+                </div>
+
+                <!-- Method B Workstation Table -->
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>WS #</th>
+                                <th>Serial/Id</th>
+                                <th>Operations</th>
+                                <th>Machine</th>
+                                <th>Predecessor</th>
+                                <th>Basic Time</th>
+                                <th>Balancing SAM</th>
+                                <th>M/P</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in result.method_b.rows %}
+                            {% set is_flagged = 'Above UCL' in r['Status'] or 'review' in r['Status'] %}
+                            <tr class="{% if is_flagged %}row-flagged{% endif %}">
+                                <td><strong>{{ r['Composite Operations'] }}</strong></td>
+                                <td>{{ r['Serial/Id'] }}</td>
+                                <td>{{ r['Operations'] }}</td>
+                                <td>{{ r['Machine'] }}</td>
+                                <td>{{ r['Predecessor'] }}</td>
+                                <td>{{ r['Basic Time'] }}</td>
+                                <td style="font-weight: 700; color: #34d399;">{{ r['Balancing SAM'] }}</td>
+                                <td><strong>{{ r['M/P'] }}</strong></td>
+                                <td>
+                                    {% if is_flagged %}
+                                        <span class="status-badge status-warning">{{ r['Status'] }}</span>
+                                    {% elif 'OK' in r['Status'] %}
+                                        <span class="status-badge status-ok">{{ r['Status'] }}</span>
+                                    {% else %}
+                                        <span class="status-badge status-danger">{{ r['Status'] }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Single Master Comparison Table -->
+        <div class="comparison-section">
+            <div class="section-header">
+                <div class="section-title">
+                    <span>📊</span>
+                    <span>Master 8-KPI Side-by-Side Comparison</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                    <span class="winner-pill" style="margin-right: 4px;">★ WINNER</span> Highlighted cell indicates better-performing method per KPI
+                </div>
+            </div>
+            <div class="comparison-table-wrapper">
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 32%;">Metric Name</th>
+                            <th style="width: 22%;">Before Balancing (Baseline)</th>
+                            <th style="width: 23%; color: #60a5fa;">Method A — Takt Time</th>
+                            <th style="width: 23%; color: #34d399;">Method B — IE Pitch</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in result.comparison %}
+                        <tr>
+                            <td>
+                                <span class="metric-col-title">{{ row.metric }}</span>
+                                <span class="metric-unit">({{ row.unit }})</span>
+                            </td>
+                            <td class="col-before">{{ row.formatted_before }}</td>
+                            <td class="col-method-a {% if row.winner == 'method_a' or row.winner == 'tie' %}cell-winner{% endif %}">
+                                {{ row.formatted_method_a }}
+                                {% if row.winner == 'method_a' %}<span class="winner-pill">★ Winner</span>{% endif %}
+                            </td>
+                            <td class="col-method-b {% if row.winner == 'method_b' or row.winner == 'tie' %}cell-winner{% endif %}">
+                                {{ row.formatted_method_b }}
+                                {% if row.winner == 'method_b' %}<span class="winner-pill">★ Winner</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 5. Grouped Bar Chart & Profile Curve (Chart.js) -->
+        <div class="chart-card">
+            <div class="section-header">
+                <div class="section-title">
+                    <span>📈</span>
+                    <span>Visual Analysis & Comparison Curves</span>
+                </div>
+                <div class="chart-tabs">
+                    <button class="chart-tab-btn active" onclick="switchChartMode('grouped_bar', this)">📊 Grouped KPI Comparison</button>
+                    <button class="chart-tab-btn" onclick="switchChartMode('profile_lines', this)">📈 Balancing Profile Curves</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 6. Text Callout Card (Recommendations) -->
+        {% if result.recommendations %}
+        <div class="rec-card">
+            <div class="section-header" style="margin-bottom: 8px;">
+                <div class="section-title">
+                    <span>💡</span>
+                    <span>Balancing Analysis & Recommendations</span>
+                </div>
+            </div>
+            <div class="rec-list">
+                {% for rec in result.recommendations %}
+                <div class="rec-item">
+                    <span class="rec-bullet">•</span>
+                    <span>{{ rec }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 7. Bottom Action Bar -->
+        {% if session_id %}
+        <div class="bottom-action-bar">
+            <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-large-export">
+                <span>📥</span>
+                <span>Download Full Comparison Report (Excel .xlsx with Charts)</span>
+            </a>
+        </div>
+        {% endif %}
+
+        {% endif %}
+    </div>
+
+    <script>
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+            if (window.currentChartData) {
+                renderCurrentChart();
+            }
+        }
+
+        let chartMode = 'grouped_bar';
+
+        function switchChartMode(mode, btn) {
+            chartMode = mode;
+            document.querySelectorAll('.chart-tab-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            renderCurrentChart();
+        }
+
+        function renderCurrentChart() {
+            if (!window.currentChartData) return;
+            const data = window.currentChartData;
+            const ctx = document.getElementById('comparisonChart');
+            if (!ctx) return;
+
+            const isDark = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark';
+            const textColor = isDark ? '#8b9cb3' : '#64748b';
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+
+            if (window.compChart) {
+                window.compChart.destroy();
+            }
+
+            if (chartMode === 'grouped_bar') {
+                // Grouped Bar Chart of All 8 KPIs
+                window.compChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.kpi_labels,
+                        datasets: [
+                            {
+                                label: 'Before Balancing (Baseline)',
+                                data: data.kpi_before,
+                                backgroundColor: 'rgba(148, 163, 184, 0.7)',
+                                borderColor: '#94a3b8',
+                                borderWidth: 1,
+                                borderRadius: 4,
+                            },
+                            {
+                                label: 'Method A: Takt Time',
+                                data: data.kpi_method_a,
+                                backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                                borderColor: '#3b82f6',
+                                borderWidth: 1,
+                                borderRadius: 4,
+                            },
+                            {
+                                label: 'Method B: IE Pitch',
+                                data: data.kpi_method_b,
+                                backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                                borderColor: '#10b981',
+                                borderWidth: 1,
+                                borderRadius: 4,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { size: 12, weight: 600 } }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const idx = context.dataIndex;
+                                        const unit = data.kpi_units ? data.kpi_units[idx] : '';
+                                        return context.dataset.label + ': ' + context.parsed.y.toLocaleString() + ' ' + unit;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                ticks: { color: textColor, font: { size: 11, weight: 600 } },
+                                grid: { color: gridColor }
+                            },
+                            y: {
+                                ticks: { color: textColor },
+                                grid: { color: gridColor }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Balancing Line Profile Curves
+                window.compChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            {
+                                label: 'Method A: Takt Time SAM',
+                                data: data.method_a_times,
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                tension: 0.2,
+                                borderWidth: 2.5,
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                            },
+                            {
+                                label: 'Method B: IE Pitch SAM',
+                                data: data.method_b_times,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                                tension: 0.2,
+                                borderWidth: 2.5,
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                            },
+                            {
+                                label: 'Takt Time Ceiling (' + data.takt_time.toFixed(1) + 's)',
+                                data: Array(data.labels.length).fill(data.takt_time),
+                                borderColor: '#ef4444',
+                                borderWidth: 2,
+                                borderDash: [6, 4],
+                                pointRadius: 0,
+                                fill: false,
+                            },
+                            {
+                                label: 'Pitch UCL (' + data.ucl.toFixed(1) + 's)',
+                                data: Array(data.labels.length).fill(data.ucl),
+                                borderColor: '#f59e0b',
+                                borderWidth: 1.5,
+                                borderDash: [4, 4],
+                                pointRadius: 0,
+                                fill: false,
+                            },
+                            {
+                                label: 'Pitch LCL (' + data.lcl.toFixed(1) + 's)',
+                                data: Array(data.labels.length).fill(data.lcl),
+                                borderColor: '#8b5cf6',
+                                borderWidth: 1.5,
+                                borderDash: [4, 4],
+                                pointRadius: 0,
+                                fill: false,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: {
+                                labels: { color: textColor, font: { size: 12, weight: 600 } }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + 's';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: { display: true, text: 'Workstation Index', color: textColor },
+                                ticks: { color: textColor },
+                                grid: { color: gridColor }
+                            },
+                            y: {
+                                title: { display: true, text: 'Balancing SAM (seconds)', color: textColor },
+                                ticks: { color: textColor },
+                                grid: { color: gridColor }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Restore theme on load
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+
+            {% if session_id %}
+            // Load Chart Data
+            fetch('/api/takt-vs-pitch-chart-data/{{ session_id }}')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) return;
+                    window.currentChartData = data;
+                    renderCurrentChart();
+                })
+                .catch(err => console.error('Error fetching chart data:', err));
+            {% endif %}
+        });
     </script>
 </body>
 </html>
