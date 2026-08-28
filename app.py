@@ -5176,15 +5176,15 @@ COMPARISON_TEMPLATE = """
         }
 
         .badge-takt {
-            background: rgba(59, 130, 246, 0.15);
-            color: #60a5fa;
-            border: 1px solid rgba(59, 130, 246, 0.3);
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
         }
 
         .badge-pitch {
-            background: rgba(16, 185, 129, 0.15);
-            color: #34d399;
-            border: 1px solid rgba(16, 185, 129, 0.3);
+            background: rgba(251, 146, 60, 0.15);
+            color: #fb923c;
+            border: 1px solid rgba(251, 146, 60, 0.3);
         }
 
         .method-desc {
@@ -5373,13 +5373,21 @@ COMPARISON_TEMPLATE = """
         }
 
         .col-method-a {
-            color: #93c5fd;
+            color: #22c55e;
             font-weight: 600;
         }
 
+        [data-theme="dark"] .col-method-a {
+            color: #4ade80;
+        }
+
         .col-method-b {
-            color: #6ee7b7;
+            color: #ea580c;
             font-weight: 600;
+        }
+
+        [data-theme="dark"] .col-method-b {
+            color: #fb923c;
         }
 
         /* Winner Highlighting */
@@ -5456,6 +5464,248 @@ COMPARISON_TEMPLATE = """
             margin-top: 14px;
         }
 
+        /* Visual Analysis & Grouped KPI 8-Card Section */
+        .kpi-visual-container {
+            padding: 12px 4px 8px 4px;
+        }
+
+        .kpi-visual-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .kpi-header-left {
+            max-width: 650px;
+        }
+
+        .kpi-eyebrow {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            color: #d9532f;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .kpi-main-title {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--text);
+            margin: 0 0 6px 0;
+            line-height: 1.25;
+            letter-spacing: -0.5px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        [data-theme="light"] .kpi-main-title {
+            color: #1a2b49;
+        }
+
+        .kpi-accent-glance {
+            border-bottom: 2px dotted #d9532f;
+            padding-bottom: 2px;
+        }
+
+        .kpi-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0;
+            line-height: 1.4;
+        }
+
+        .kpi-legend {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            padding-bottom: 4px;
+        }
+
+        .kpi-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .legend-box {
+            width: 13px;
+            height: 13px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+
+        .legend-before {
+            background-color: #ef4444;
+        }
+
+        .legend-takt {
+            background-color: #22c55e;
+        }
+
+        .legend-pitch {
+            background-color: #fb923c;
+        }
+
+        /* 8-Card Grid */
+        .kpi-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
+
+        @media (max-width: 1200px) {
+            .kpi-cards-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .kpi-cards-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .kpi-mini-card {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 16px 14px 12px 14px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 220px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        [data-theme="light"] .kpi-mini-card {
+            background: #ffffff;
+            border-color: #cbd5e1;
+        }
+
+        .kpi-mini-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .kpi-mini-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1e3a8a;
+            margin-bottom: 12px;
+            line-height: 1.3;
+            min-height: 32px;
+        }
+
+        [data-theme="dark"] .kpi-mini-title {
+            color: #93c5fd;
+        }
+
+        .kpi-mini-chart {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 150px;
+            justify-content: flex-end;
+        }
+
+        .kpi-bars-area {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-end;
+            height: 110px;
+            width: 100%;
+            padding: 0 8px;
+        }
+
+        .kpi-bar-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            width: 28%;
+            height: 100%;
+        }
+
+        .kpi-bar-val {
+            font-size: 11.5px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 4px;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        [data-theme="light"] .kpi-bar-val {
+            color: #1e293b;
+        }
+
+        .kpi-bar {
+            width: 24px;
+            border-radius: 2px 2px 0 0;
+            transition: height 0.4s ease;
+            min-height: 4px;
+        }
+
+        .bar-before {
+            background-color: #ef4444;
+        }
+
+        .bar-takt {
+            background-color: #22c55e;
+        }
+
+        .bar-pitch {
+            background-color: #fb923c;
+        }
+
+        .kpi-bar:hover {
+            filter: brightness(1.15);
+        }
+
+        .kpi-baseline-axis {
+            width: 100%;
+            height: 1px;
+            background-color: #94a3b8;
+            display: flex;
+            justify-content: space-around;
+            position: relative;
+        }
+
+        .kpi-axis-tick {
+            width: 1px;
+            height: 4px;
+            background-color: #94a3b8;
+        }
+
+        .kpi-axis-labels {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            padding-top: 5px;
+        }
+
+        .kpi-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            width: 33.33%;
+            font-weight: 500;
+        }
+
+        [data-theme="light"] .kpi-label {
+            color: #475569;
+        }
+
         /* Recommendations Card */
         .rec-card {
             background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
@@ -5528,7 +5778,7 @@ COMPARISON_TEMPLATE = """
         <div class="header">
             <div class="header-content">
                 <h1>Takt vs Pitch Comparison</h1>
-                <p>Parallel balancing passes: Method A (Strict Takt Ceiling) vs Method B (IE Pitch ±15% Classification)</p>
+                <p>Parallel balancing passes: Method A (Strict Takt) vs Method B (IE Pitch ±15% Classification)</p>
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
@@ -5555,11 +5805,11 @@ COMPARISON_TEMPLATE = """
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
                 </div>
                 <div class="field">
-                    <label>Available Time (Shift Duration in Minutes)</label>
+                    <label>Available Time</label>
                     <input type="number" name="shift_time" value="{% if result %}{{ result.shift_time_minutes }}{% else %}420{% endif %}" min="1" step="1" required>
                 </div>
                 <div class="field">
-                    <label>Customer Demand (Production Target Units)</label>
+                    <label>Customer Demand</label>
                     <input type="number" name="production_target" value="{% if result %}{{ result.production_target }}{% else %}500{% endif %}" min="1" step="1" required>
                 </div>
                 <div class="field">
@@ -5587,11 +5837,11 @@ COMPARISON_TEMPLATE = """
                 <div class="value">{{ result.production_target }} <span class="unit">units</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">Available Shift Time</div>
+                <div class="label">Available Time</div>
                 <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }} <span class="unit">min</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">Total Basic Time (SAM)</div>
+                <div class="label">SAM</div>
                 <div class="value">{{ "%.1f"|format(result.total_sam / 60) }} <span class="unit">min</span></div>
             </div>
             <div class="metric-card">
@@ -5607,16 +5857,12 @@ COMPARISON_TEMPLATE = """
                 <div class="value">{{ "%.1f"|format(result.before.efficiency_balancing_rate) }} <span class="unit">%</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">Takt Time (Method A Ceiling)</div>
-                <div class="value" style="color: #60a5fa;">{{ "%.1f"|format(result.takt_time) }} <span class="unit">s</span></div>
+                <div class="label">Takt / IE Pitch Time</div>
+                <div class="value" style="color: #60a5fa;">{{ "%.1f"|format(result.takt_time) }} / {{ "%.1f"|format(result.pitch_time) }} <span class="unit">sec</span></div>
             </div>
             <div class="metric-card">
-                <div class="label">IE Pitch Time (Method B Base)</div>
-                <div class="value" style="color: #34d399;">{{ "%.1f"|format(result.pitch_time) }} <span class="unit">s</span></div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Method B UCL / LCL (±15%)</div>
-                <div class="value">{{ "%.1f"|format(result.ucl) }} / {{ "%.1f"|format(result.lcl) }} <span class="unit">s</span></div>
+                <div class="label">UCL / LCL (±15%)</div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }} / {{ "%.1f"|format(result.lcl) }} <span class="unit">sec</span></div>
             </div>
             {% if result.method_b.review_flag_count > 0 %}
             <div class="metric-card" style="border-color: rgba(245, 158, 11, 0.4);">
@@ -5626,7 +5872,201 @@ COMPARISON_TEMPLATE = """
             {% endif %}
         </div>
 
-        <!-- 3. Balanced Workstation Layout (Single View with Infinity Toggle Button) -->
+        <!-- 3. Single Master Comparison Table -->
+        <div class="comparison-section">
+            <div class="section-header">
+                <div class="section-title">
+                    <span>Master 8-KPI Side-by-Side Comparison</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                    <span class="winner-pill" style="margin-right: 4px;">★</span> Highlighted cell indicates better-performing method per KPI
+                </div>
+            </div>
+            <div class="comparison-table-wrapper">
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 32%;">Metric Name</th>
+                            <th style="width: 22%;">Before Balancing (Baseline)</th>
+                            <th style="width: 23%; color: #22c55e;">Method A — Takt Time</th>
+                            <th style="width: 23%; color: #fb923c;">Method B — IE Pitch</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in result.comparison %}
+                        <tr>
+                            <td>
+                                <span class="metric-col-title">{{ row.metric }}</span>
+                                <span class="metric-unit">({{ row.unit }})</span>
+                            </td>
+                            <td class="col-before">{{ row.formatted_before }}</td>
+                            <td class="col-method-a {% if row.winner == 'method_a' or row.winner == 'tie' %}cell-winner{% endif %}">
+                                {{ row.formatted_method_a }}
+                                {% if row.winner == 'method_a' %}<span class="winner-pill">★</span>{% endif %}
+                            </td>
+                            <td class="col-method-b {% if row.winner == 'method_b' or row.winner == 'tie' %}cell-winner{% endif %}">
+                                {{ row.formatted_method_b }}
+                                {% if row.winner == 'method_b' %}<span class="winner-pill">★</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 4. Grouped Bar Chart & Profile Curve (Visual Analysis) -->
+        <div class="chart-card">
+            <div class="section-header">
+                <div class="section-title">
+                    <span>Visual Analysis & Comparison Curves</span>
+                </div>
+                <div class="chart-tabs">
+                    <button class="chart-tab-btn active" onclick="switchChartMode('grouped_bar', this)">Grouped KPI Comparison</button>
+                    <button class="chart-tab-btn" onclick="switchChartMode('profile_lines', this)">Balancing Profile Curves</button>
+                </div>
+            </div>
+
+            <!-- Grouped KPI Comparison 8-Card Section -->
+            <div id="groupedKpiSection" class="kpi-visual-container">
+                <div class="kpi-visual-header">
+                    <div class="kpi-header-left">
+                        <h2 class="kpi-main-title">All KPIs — Before vs. After, <span class="kpi-accent-glance">at a Glance</span></h2>
+                        <p class="kpi-subtitle">Every KPI from the master table, charted side by side across the three scenarios.</p>
+                    </div>
+                    <div class="kpi-legend">
+                        <div class="kpi-legend-item">
+                            <span class="legend-box legend-before"></span>
+                            <span class="legend-text">Before</span>
+                        </div>
+                        <div class="kpi-legend-item">
+                            <span class="legend-box legend-takt"></span>
+                            <span class="legend-text">After – Takt</span>
+                        </div>
+                        <div class="kpi-legend-item">
+                            <span class="legend-box legend-pitch"></span>
+                            <span class="legend-text">After – IE Pitch</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="kpi-cards-grid">
+                    {% set kpi_cards_data = [
+                        {
+                            'title': 'Operations (after merging)',
+                            'b': result.before.num_operations,
+                            'a': result.method_a.num_workstations,
+                            'p': result.method_b.num_workstations,
+                            'fmt': 'int'
+                        },
+                        {
+                            'title': 'Number of Operators',
+                            'b': result.before.total_manpower,
+                            'a': result.method_a.total_manpower,
+                            'p': result.method_b.total_manpower,
+                            'fmt': 'int'
+                        },
+                        {
+                            'title': 'Cycle Time (sec)',
+                            'b': result.before.cycle_time,
+                            'a': result.method_a.cycle_time,
+                            'p': result.method_b.cycle_time,
+                            'fmt': 'float'
+                        },
+                        {
+                            'title': 'Achievable Output (pcs/day)',
+                            'b': result.before.achievable_output,
+                            'a': result.method_a.achievable_output,
+                            'p': result.method_b.achievable_output,
+                            'fmt': 'int'
+                        },
+                        {
+                            'title': 'Efficiency = Balancing Rate (%)',
+                            'b': result.before.efficiency_balancing_rate,
+                            'a': result.method_a.efficiency_balancing_rate,
+                            'p': result.method_b.efficiency_balancing_rate,
+                            'fmt': 'float'
+                        },
+                        {
+                            'title': 'Balancing Delay (%)',
+                            'b': result.before.comparison_balance_delay,
+                            'a': result.method_a.comparison_balance_delay,
+                            'p': result.method_b.comparison_balance_delay,
+                            'fmt': 'float'
+                        },
+                        {
+                            'title': 'Smoothing Index (sec)',
+                            'b': result.before.smoothing_index_seconds,
+                            'a': result.method_a.smoothing_index_seconds,
+                            'p': result.method_b.smoothing_index_seconds,
+                            'fmt': 'float'
+                        },
+                        {
+                            'title': 'Labour Productivity (pcs/op/shift)',
+                            'b': result.before.comparison_labour_productivity,
+                            'a': result.method_a.comparison_labour_productivity,
+                            'p': result.method_b.comparison_labour_productivity,
+                            'fmt': 'float'
+                        }
+                    ] %}
+
+                    {% for card in kpi_cards_data %}
+                    {% set vals = [card.b, card.a, card.p] %}
+                    {% set v_min = vals|min %}
+                    {% set v_max = vals|max %}
+                    {% set v_diff = v_max - v_min %}
+                    {% if v_diff <= 0.0001 %}
+                        {% set h_b = 65.0 %}
+                        {% set h_a = 65.0 %}
+                        {% set h_p = 65.0 %}
+                    {% else %}
+                        {% set h_b = (28.0 + (((card.b - v_min) / v_diff) * 65.0))|round(1) %}
+                        {% set h_a = (28.0 + (((card.a - v_min) / v_diff) * 65.0))|round(1) %}
+                        {% set h_p = (28.0 + (((card.p - v_min) / v_diff) * 65.0))|round(1) %}
+                    {% endif %}
+                    <div class="kpi-mini-card">
+                        <div class="kpi-mini-title">{{ card.title }}</div>
+                        <div class="kpi-mini-chart">
+                            <div class="kpi-bars-area">
+                                <!-- Before Bar -->
+                                <div class="kpi-bar-col">
+                                    <span class="kpi-bar-val">{% if card.fmt == 'int' %}{{ "%.0f"|format(card.b) }}{% else %}{{ "%.1f"|format(card.b) }}{% endif %}</span>
+                                    <div class="kpi-bar bar-before" style="height: {{ h_b }}%;"></div>
+                                </div>
+                                <!-- Takt Bar -->
+                                <div class="kpi-bar-col">
+                                    <span class="kpi-bar-val">{% if card.fmt == 'int' %}{{ "%.0f"|format(card.a) }}{% else %}{{ "%.1f"|format(card.a) }}{% endif %}</span>
+                                    <div class="kpi-bar bar-takt" style="height: {{ h_a }}%;"></div>
+                                </div>
+                                <!-- Pitch Bar -->
+                                <div class="kpi-bar-col">
+                                    <span class="kpi-bar-val">{% if card.fmt == 'int' %}{{ "%.0f"|format(card.p) }}{% else %}{{ "%.1f"|format(card.p) }}{% endif %}</span>
+                                    <div class="kpi-bar bar-pitch" style="height: {{ h_p }}%;"></div>
+                                </div>
+                            </div>
+                            <div class="kpi-baseline-axis">
+                                <div class="kpi-axis-tick"></div>
+                                <div class="kpi-axis-tick"></div>
+                                <div class="kpi-axis-tick"></div>
+                            </div>
+                            <div class="kpi-axis-labels">
+                                <span class="kpi-label">Before</span>
+                                <span class="kpi-label">Takt</span>
+                                <span class="kpi-label">Pitch</span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Profile Line Curve Container -->
+            <div id="profileLinesSection" class="chart-container" style="display: none;">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 5. Balanced Workstation Layout (Single View with Infinity Toggle Button) -->
         <div class="layout-control-card">
             <div class="section-header">
                 <div class="section-title">
@@ -5650,7 +6090,7 @@ COMPARISON_TEMPLATE = """
                 <div class="mini-kpi-grid" style="margin-bottom: 16px;">
                     <div class="mini-kpi">
                         <div class="k-lbl">Manpower</div>
-                        <div class="k-val" style="color: #60a5fa;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
+                        <div class="k-val" style="color: #22c55e;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Stations</div>
@@ -5658,7 +6098,7 @@ COMPARISON_TEMPLATE = """
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Efficiency</div>
-                        <div class="k-val" style="color: #4ade80;">{{ "%.1f"|format(result.method_a.efficiency_balancing_rate) }}%</div>
+                        <div class="k-val" style="color: #22c55e;">{{ "%.1f"|format(result.method_a.efficiency_balancing_rate) }}%</div>
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Output</div>
@@ -5694,9 +6134,9 @@ COMPARISON_TEMPLATE = """
                                 <td>{{ r['Predecessor'] }}</td>
                                 <td>{{ r['Basic Time'] }}</td>
                                 <td style="font-weight: 600;">{{ r['Combined SAM'] }}</td>
-                                <td style="font-weight: 700; color: #60a5fa;">{{ r['Balancing SAM'] }}</td>
+                                <td style="font-weight: 700; color: #22c55e;">{{ r['Balancing SAM'] }}</td>
                                 <td><strong>{{ r['M/P'] }}</strong></td>
-                                <td style="color: #60a5fa; font-weight: 600;">{{ r['Takt Time'] }}</td>
+                                <td style="color: #22c55e; font-weight: 600;">{{ r['Takt Time'] }}</td>
                                 <td><span class="status-badge status-ok">{{ r['Status'] }}</span></td>
                             </tr>
                             {% endfor %}
@@ -5722,7 +6162,7 @@ COMPARISON_TEMPLATE = """
                 <div class="mini-kpi-grid" style="margin-bottom: 16px;">
                     <div class="mini-kpi">
                         <div class="k-lbl">Manpower</div>
-                        <div class="k-val" style="color: #34d399;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
+                        <div class="k-val" style="color: #fb923c;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Stations</div>
@@ -5730,7 +6170,7 @@ COMPARISON_TEMPLATE = """
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Efficiency</div>
-                        <div class="k-val" style="color: #4ade80;">{{ "%.1f"|format(result.method_b.efficiency_balancing_rate) }}%</div>
+                        <div class="k-val" style="color: #fb923c;">{{ "%.1f"|format(result.method_b.efficiency_balancing_rate) }}%</div>
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Output</div>
@@ -5769,9 +6209,9 @@ COMPARISON_TEMPLATE = """
                                 <td>{{ r['Predecessor'] }}</td>
                                 <td>{{ r['Basic Time'] }}</td>
                                 <td style="font-weight: 600;">{{ r['Combined SAM'] }}</td>
-                                <td style="font-weight: 700; color: #34d399;">{{ r['Balancing SAM'] }}</td>
+                                <td style="font-weight: 700; color: #fb923c;">{{ r['Balancing SAM'] }}</td>
                                 <td><strong>{{ r['M/P'] }}</strong></td>
-                                <td style="color: #34d399; font-weight: 600;">{{ r['Pitch Time'] }}</td>
+                                <td style="color: #fb923c; font-weight: 600;">{{ r['Pitch Time'] }}</td>
                                 <td style="color: var(--text-muted);">{{ r['LCL'] }}</td>
                                 <td style="color: var(--text-muted);">{{ r['UCL'] }}</td>
                                 <td>
@@ -5788,65 +6228,6 @@ COMPARISON_TEMPLATE = """
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
-
-        <!-- 4. Single Master Comparison Table -->
-        <div class="comparison-section">
-            <div class="section-header">
-                <div class="section-title">
-                    <span>Master 8-KPI Side-by-Side Comparison</span>
-                </div>
-                <div style="font-size: 12px; color: var(--text-muted);">
-                    <span class="winner-pill" style="margin-right: 4px;">★ WINNER</span> Highlighted cell indicates better-performing method per KPI
-                </div>
-            </div>
-            <div class="comparison-table-wrapper">
-                <table class="comparison-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 32%;">Metric Name</th>
-                            <th style="width: 22%;">Before Balancing (Baseline)</th>
-                            <th style="width: 23%; color: #60a5fa;">Method A — Takt Time</th>
-                            <th style="width: 23%; color: #34d399;">Method B — IE Pitch</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in result.comparison %}
-                        <tr>
-                            <td>
-                                <span class="metric-col-title">{{ row.metric }}</span>
-                                <span class="metric-unit">({{ row.unit }})</span>
-                            </td>
-                            <td class="col-before">{{ row.formatted_before }}</td>
-                            <td class="col-method-a {% if row.winner == 'method_a' or row.winner == 'tie' %}cell-winner{% endif %}">
-                                {{ row.formatted_method_a }}
-                                {% if row.winner == 'method_a' %}<span class="winner-pill">★ Winner</span>{% endif %}
-                            </td>
-                            <td class="col-method-b {% if row.winner == 'method_b' or row.winner == 'tie' %}cell-winner{% endif %}">
-                                {{ row.formatted_method_b }}
-                                {% if row.winner == 'method_b' %}<span class="winner-pill">★ Winner</span>{% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- 5. Grouped Bar Chart & Profile Curve (Chart.js) -->
-        <div class="chart-card">
-            <div class="section-header">
-                <div class="section-title">
-                    <span>Visual Analysis & Comparison Curves</span>
-                </div>
-                <div class="chart-tabs">
-                    <button class="chart-tab-btn active" onclick="switchChartMode('grouped_bar', this)">Grouped KPI Comparison</button>
-                    <button class="chart-tab-btn" onclick="switchChartMode('profile_lines', this)">Balancing Profile Curves</button>
-                </div>
-            </div>
-            <div class="chart-container">
-                <canvas id="comparisonChart"></canvas>
             </div>
         </div>
 
@@ -5892,8 +6273,8 @@ COMPARISON_TEMPLATE = """
             document.querySelectorAll('.theme-toggle').forEach(button => {
                 button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
             });
-            if (window.currentChartData) {
-                renderCurrentChart();
+            if (window.currentChartData && chartMode === 'profile_lines') {
+                renderProfileChart();
             }
         }
 
@@ -5937,10 +6318,21 @@ COMPARISON_TEMPLATE = """
             chartMode = mode;
             document.querySelectorAll('.chart-tab-btn').forEach(b => b.classList.remove('active'));
             if (btn) btn.classList.add('active');
-            renderCurrentChart();
+
+            const groupedSection = document.getElementById('groupedKpiSection');
+            const profileSection = document.getElementById('profileLinesSection');
+
+            if (mode === 'grouped_bar') {
+                if (groupedSection) groupedSection.style.display = 'block';
+                if (profileSection) profileSection.style.display = 'none';
+            } else {
+                if (groupedSection) groupedSection.style.display = 'none';
+                if (profileSection) profileSection.style.display = 'block';
+                renderProfileChart();
+            }
         }
 
-        function renderCurrentChart() {
+        function renderProfileChart() {
             if (!window.currentChartData) return;
             const data = window.currentChartData;
             const ctx = document.getElementById('comparisonChart');
@@ -5954,155 +6346,91 @@ COMPARISON_TEMPLATE = """
                 window.compChart.destroy();
             }
 
-            if (chartMode === 'grouped_bar') {
-                // Grouped Bar Chart of All 8 KPIs
-                window.compChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: data.kpi_labels,
-                        datasets: [
-                            {
-                                label: 'Before Balancing (Baseline)',
-                                data: data.kpi_before,
-                                backgroundColor: 'rgba(148, 163, 184, 0.7)',
-                                borderColor: '#94a3b8',
-                                borderWidth: 1,
-                                borderRadius: 4,
-                            },
-                            {
-                                label: 'Method A: Takt Time',
-                                data: data.kpi_method_a,
-                                backgroundColor: 'rgba(59, 130, 246, 0.8)',
-                                borderColor: '#3b82f6',
-                                borderWidth: 1,
-                                borderRadius: 4,
-                            },
-                            {
-                                label: 'Method B: IE Pitch',
-                                data: data.kpi_method_b,
-                                backgroundColor: 'rgba(16, 185, 129, 0.8)',
-                                borderColor: '#10b981',
-                                borderWidth: 1,
-                                borderRadius: 4,
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                labels: { color: textColor, font: { size: 12, weight: 600 } }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        const idx = context.dataIndex;
-                                        const unit = data.kpi_units ? data.kpi_units[idx] : '';
-                                        return context.dataset.label + ': ' + context.parsed.y.toLocaleString() + ' ' + unit;
-                                    }
+            // Balancing Line Profile Curves
+            window.compChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        {
+                            label: 'Method A: Takt Time SAM',
+                            data: data.method_a_times,
+                            borderColor: '#22c55e',
+                            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                            tension: 0.2,
+                            borderWidth: 2.5,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                        },
+                        {
+                            label: 'Method B: IE Pitch SAM',
+                            data: data.method_b_times,
+                            borderColor: '#fb923c',
+                            backgroundColor: 'rgba(251, 146, 60, 0.15)',
+                            tension: 0.2,
+                            borderWidth: 2.5,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                        },
+                        {
+                            label: 'Takt Time Ceiling (' + data.takt_time.toFixed(1) + 's)',
+                            data: Array(data.labels.length).fill(data.takt_time),
+                            borderColor: '#ef4444',
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            pointRadius: 0,
+                            fill: false,
+                        },
+                        {
+                            label: 'Pitch UCL (' + data.ucl.toFixed(1) + 's)',
+                            data: Array(data.labels.length).fill(data.ucl),
+                            borderColor: '#f59e0b',
+                            borderWidth: 1.5,
+                            borderDash: [4, 4],
+                            pointRadius: 0,
+                            fill: false,
+                        },
+                        {
+                            label: 'Pitch LCL (' + data.lcl.toFixed(1) + 's)',
+                            data: Array(data.labels.length).fill(data.lcl),
+                            borderColor: '#8b5cf6',
+                            borderWidth: 1.5,
+                            borderDash: [4, 4],
+                            pointRadius: 0,
+                            fill: false,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            labels: { color: textColor, font: { size: 12, weight: 600 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + 's';
                                 }
                             }
-                        },
-                        scales: {
-                            x: {
-                                ticks: { color: textColor, font: { size: 11, weight: 600 } },
-                                grid: { color: gridColor }
-                            },
-                            y: {
-                                ticks: { color: textColor },
-                                grid: { color: gridColor }
-                            }
                         }
-                    }
-                });
-            } else {
-                // Balancing Line Profile Curves
-                window.compChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: data.labels,
-                        datasets: [
-                            {
-                                label: 'Method A: Takt Time SAM',
-                                data: data.method_a_times,
-                                borderColor: '#3b82f6',
-                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                                tension: 0.2,
-                                borderWidth: 2.5,
-                                pointRadius: 4,
-                                pointHoverRadius: 6,
-                            },
-                            {
-                                label: 'Method B: IE Pitch SAM',
-                                data: data.method_b_times,
-                                borderColor: '#10b981',
-                                backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                                tension: 0.2,
-                                borderWidth: 2.5,
-                                pointRadius: 4,
-                                pointHoverRadius: 6,
-                            },
-                            {
-                                label: 'Takt Time Ceiling (' + data.takt_time.toFixed(1) + 's)',
-                                data: Array(data.labels.length).fill(data.takt_time),
-                                borderColor: '#ef4444',
-                                borderWidth: 2,
-                                borderDash: [6, 4],
-                                pointRadius: 0,
-                                fill: false,
-                            },
-                            {
-                                label: 'Pitch UCL (' + data.ucl.toFixed(1) + 's)',
-                                data: Array(data.labels.length).fill(data.ucl),
-                                borderColor: '#f59e0b',
-                                borderWidth: 1.5,
-                                borderDash: [4, 4],
-                                pointRadius: 0,
-                                fill: false,
-                            },
-                            {
-                                label: 'Pitch LCL (' + data.lcl.toFixed(1) + 's)',
-                                data: Array(data.labels.length).fill(data.lcl),
-                                borderColor: '#8b5cf6',
-                                borderWidth: 1.5,
-                                borderDash: [4, 4],
-                                pointRadius: 0,
-                                fill: false,
-                            }
-                        ]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                            legend: {
-                                labels: { color: textColor, font: { size: 12, weight: 600 } }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + 's';
-                                    }
-                                }
-                            }
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Workstation Index', color: textColor },
+                            ticks: { color: textColor },
+                            grid: { color: gridColor }
                         },
-                        scales: {
-                            x: {
-                                title: { display: true, text: 'Workstation Index', color: textColor },
-                                ticks: { color: textColor },
-                                grid: { color: gridColor }
-                            },
-                            y: {
-                                title: { display: true, text: 'Balancing SAM (seconds)', color: textColor },
-                                ticks: { color: textColor },
-                                grid: { color: gridColor }
-                            }
+                        y: {
+                            title: { display: true, text: 'Balancing SAM (seconds)', color: textColor },
+                            ticks: { color: textColor },
+                            grid: { color: gridColor }
                         }
                     }
-                });
-            }
+                }
+            });
         }
 
         // Restore theme on load
@@ -6120,7 +6448,9 @@ COMPARISON_TEMPLATE = """
                 .then(data => {
                     if (data.error) return;
                     window.currentChartData = data;
-                    renderCurrentChart();
+                    if (chartMode === 'profile_lines') {
+                        renderProfileChart();
+                    }
                 })
                 .catch(err => console.error('Error fetching chart data:', err));
             {% endif %}

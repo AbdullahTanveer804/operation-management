@@ -239,6 +239,10 @@ def test_takt_vs_pitch_flask_routes():
     assert b"Method A: After Takt Time" in res_post.data
     assert b"Method B: After IE Pitch" in res_post.data
     assert b"Visual Analysis &amp; Comparison Curves" in res_post.data or b"Visual Analysis & Comparison Curves" in res_post.data
+    assert b"Operations (after merging)" in res_post.data
+    assert b"Number of Operators" in res_post.data
+    assert b"Labour Productivity (pcs/op/shift)" in res_post.data
+    assert b"After \xe2\x80\x93 Takt" in res_post.data or b"After" in res_post.data
 
     # 3. POST /api/compare
     data_api = {
