@@ -647,6 +647,30 @@ def calculate_takt_vs_pitch_comparison(
             f"{achievable_output_b:.0f} pcs/available time",
         },
         {
+            "metric":
+            "Labour Productivity",
+            "key":
+            "comparison_labour_productivity",
+            "unit":
+            "pcs/operator",
+            "higher_is_better":
+            True,
+            "winner":
+            get_winner(labour_productivity_a, labour_productivity_b, True),
+            "before":
+            labour_productivity_before,
+            "method_a":
+            labour_productivity_a,
+            "method_b":
+            labour_productivity_b,
+            "formatted_before":
+            f"{labour_productivity_before:.1f} pcs/optr",
+            "formatted_method_a":
+            f"{labour_productivity_a:.1f} pcs/optr",
+            "formatted_method_b":
+            f"{labour_productivity_b:.1f} pcs/optr",
+        },
+        {
             "metric": "Efficiency (Balancing Rate)",
             "key": "efficiency_balancing_rate",
             "unit": "%",
@@ -696,30 +720,6 @@ def calculate_takt_vs_pitch_comparison(
             f"{smoothing_index_seconds_a:.2f} sec",
             "formatted_method_b":
             f"{smoothing_index_seconds_b:.2f} sec",
-        },
-        {
-            "metric":
-            "Labour Productivity",
-            "key":
-            "comparison_labour_productivity",
-            "unit":
-            "pcs/operator",
-            "higher_is_better":
-            True,
-            "winner":
-            get_winner(labour_productivity_a, labour_productivity_b, True),
-            "before":
-            labour_productivity_before,
-            "method_a":
-            labour_productivity_a,
-            "method_b":
-            labour_productivity_b,
-            "formatted_before":
-            f"{labour_productivity_before:.1f} pcs/optr",
-            "formatted_method_a":
-            f"{labour_productivity_a:.1f} pcs/optr",
-            "formatted_method_b":
-            f"{labour_productivity_b:.1f} pcs/optr",
         },
     ]
 
