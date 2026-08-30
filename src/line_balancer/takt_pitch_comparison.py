@@ -590,19 +590,6 @@ def calculate_takt_vs_pitch_comparison(
 
     comparison = [
         {
-            "metric": "Total Manpower",
-            "key": "total_manpower",
-            "unit": "operators",
-            "higher_is_better": False,
-            "winner": get_winner(n_ops_a, n_ops_b, False),
-            "before": n_ops_before,
-            "method_a": n_ops_a,
-            "method_b": n_ops_b,
-            "formatted_before": f"{n_ops_before}",
-            "formatted_method_a": f"{n_ops_a}",
-            "formatted_method_b": f"{n_ops_b}",
-        },
-        {
             "metric": "Composite Operations",
             "key": "num_workstations",
             "unit": "stations",
@@ -617,31 +604,47 @@ def calculate_takt_vs_pitch_comparison(
             "formatted_method_b": f"{len(workstations_b)}",
         },
         {
+            "metric": "Total Manpower",
+            "key": "total_manpower",
+            "unit": "operators",
+            "higher_is_better": False,
+            "winner": get_winner(n_ops_a, n_ops_b, False),
+            "before": n_ops_before,
+            "method_a": n_ops_a,
+            "method_b": n_ops_b,
+            "formatted_before": f"{n_ops_before}",
+            "formatted_method_a": f"{n_ops_a}",
+            "formatted_method_b": f"{n_ops_b}",
+        },
+        {
             "metric": "Cycle Time",
             "key": "cycle_time",
-            "unit": "s",
+            "unit": "sec",
             "higher_is_better": False,
             "winner": get_winner(cycle_time_a, cycle_time_b, False),
             "before": cycle_time_before,
             "method_a": cycle_time_a,
             "method_b": cycle_time_b,
-            "formatted_before": f"{cycle_time_before:.1f} s",
-            "formatted_method_a": f"{cycle_time_a:.1f} s",
-            "formatted_method_b": f"{cycle_time_b:.1f} s",
+            "formatted_before": f"{cycle_time_before:.1f} sec",
+            "formatted_method_a": f"{cycle_time_a:.1f} sec",
+            "formatted_method_b": f"{cycle_time_b:.1f} sec",
         },
         {
             "metric": "Achievable Output",
             "key": "achievable_output",
-            "unit": "pcs/day",
+            "unit": "pcs/available time",
             "higher_is_better": True,
             "winner": get_winner(achievable_output_a, achievable_output_b,
                                  True),
             "before": achievable_output_before,
             "method_a": achievable_output_a,
             "method_b": achievable_output_b,
-            "formatted_before": f"{achievable_output_before:.0f} pcs/day",
-            "formatted_method_a": f"{achievable_output_a:.0f} pcs/day",
-            "formatted_method_b": f"{achievable_output_b:.0f} pcs/day",
+            "formatted_before":
+            f"{achievable_output_before:.0f} pcs/available time",
+            "formatted_method_a":
+            f"{achievable_output_a:.0f} pcs/available time",
+            "formatted_method_b":
+            f"{achievable_output_b:.0f} pcs/available time",
         },
         {
             "metric": "Efficiency (Balancing Rate)",
@@ -675,7 +678,7 @@ def calculate_takt_vs_pitch_comparison(
             "key":
             "smoothing_index_seconds",
             "unit":
-            "s",
+            "sec",
             "higher_is_better":
             False,
             "winner":
@@ -688,11 +691,11 @@ def calculate_takt_vs_pitch_comparison(
             "method_b":
             smoothing_index_seconds_b,
             "formatted_before":
-            f"{smoothing_index_seconds_before:.2f} s",
+            f"{smoothing_index_seconds_before:.2f} sec",
             "formatted_method_a":
-            f"{smoothing_index_seconds_a:.2f} s",
+            f"{smoothing_index_seconds_a:.2f} sec",
             "formatted_method_b":
-            f"{smoothing_index_seconds_b:.2f} s",
+            f"{smoothing_index_seconds_b:.2f} sec",
         },
         {
             "metric":
@@ -712,11 +715,11 @@ def calculate_takt_vs_pitch_comparison(
             "method_b":
             labour_productivity_b,
             "formatted_before":
-            f"{labour_productivity_before:.1f} pcs/op",
+            f"{labour_productivity_before:.1f} pcs/optr",
             "formatted_method_a":
-            f"{labour_productivity_a:.1f} pcs/op",
+            f"{labour_productivity_a:.1f} pcs/optr",
             "formatted_method_b":
-            f"{labour_productivity_b:.1f} pcs/op",
+            f"{labour_productivity_b:.1f} pcs/optr",
         },
     ]
 

@@ -6098,13 +6098,13 @@ COMPARISON_TEMPLATE = """
                         <span class="opt-key-item__text"><strong>Axes:</strong> X-axis = Stations · Y-axis = Time (seconds) — <em>same scale across all charts</em></span>
                     </div>
                     <div class="opt-key-item">
-                        <span class="opt-key-item__text"><strong>Takt Time (solid red line):</strong> {{ "%.1f"|format(result.takt_time) }}s — Maximum time per station to meet customer demand. Shown on all three charts</span>
+                        <span class="opt-key-item__text"><strong>Takt Time (red line):</strong> {{ "%.1f"|format(result.takt_time) }}sec — Maximum time per station to meet customer demand. Shown on all three charts</span>
                     </div>
                     <div class="opt-key-item">
-                        <span class="opt-key-item__text"><strong>IE Pitch Time (solid blue line):</strong> {{ "%.1f"|format(result.pitch_time) }}s — Industrial Engineering standard target time. Shown on Before Balancing chart only</span>
+                        <span class="opt-key-item__text"><strong>IE Pitch Time (yellow line):</strong> {{ "%.1f"|format(result.pitch_time) }}sec — Industrial Engineering standard target time. Shown on Before Balancing chart only</span>
                     </div>
                     <div class="opt-key-item">
-                        <span class="opt-key-item__text"><strong>UCL (solid amber line):</strong> {{ "%.1f"|format(result.ucl) }}s — Pitch + 15% upper tolerance. Shown on Method B chart only</span>
+                        <span class="opt-key-item__text"><strong>UCL (blue line):</strong> {{ "%.1f"|format(result.ucl) }}sec — Pitch + 15% upper tolerance. Shown on Method B chart only</span>
                     </div>
                     <div class="opt-key-item">
                         <span class="opt-key-item__text"><strong>Primary Goal:</strong> Bars closer to the reference line = better balanced line with less idle time</span>
@@ -6230,7 +6230,7 @@ COMPARISON_TEMPLATE = """
                             'fmt': 'float'
                         },
                         {
-                            'title': 'Achievable Output (pcs/day)',
+                            'title': 'Achievable Output (pcs/available time)',
                             'b': result.before.achievable_output,
                             'a': result.method_a.achievable_output,
                             'p': result.method_b.achievable_output,
@@ -6258,7 +6258,7 @@ COMPARISON_TEMPLATE = """
                             'fmt': 'float'
                         },
                         {
-                            'title': 'Labour Productivity (pcs/op/shift)',
+                            'title': 'Labour Productivity (pcs/optr/shift)',
                             'b': result.before.comparison_labour_productivity,
                             'a': result.method_a.comparison_labour_productivity,
                             'p': result.method_b.comparison_labour_productivity,
@@ -6339,14 +6339,14 @@ COMPARISON_TEMPLATE = """
                             <span>Switch to Method B (IE Pitch)</span>
                         </button>
                     </div>
-                    <div class="method-desc">Strict Takt = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Zero relaxation · Strict divide-and-increment</div>
+                    <div class="method-desc">Strict Takt = <strong>{{ "%.1f"|format(result.takt_time) }}sec</strong> · Zero relaxation · Strict divide-and-increment</div>
                 </div>
 
                 <!-- Method A Mini KPI Row -->
                 <div class="mini-kpi-grid" style="margin-bottom: 16px;">
                     <div class="mini-kpi">
                         <div class="k-lbl">Manpower</div>
-                        <div class="k-val" style="color: #22c55e;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
+                        <div class="k-val" style="color: #22c55e;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">optr</span></div>
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Stations</div>
@@ -6358,7 +6358,7 @@ COMPARISON_TEMPLATE = """
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Output</div>
-                        <div class="k-val">{{ "%.0f"|format(result.method_a.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/day</span></div>
+                        <div class="k-val">{{ "%.0f"|format(result.method_a.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/availabale time</span></div>
                     </div>
                 </div>
 
@@ -6372,7 +6372,7 @@ COMPARISON_TEMPLATE = """
                                 <th>Operations</th>
                                 <th>Machine</th>
                                 <th>Predecessor</th>
-                                <th>Basic Time</th>
+                                <th>SAM</th>
                                 <th>Combined SAM</th>
                                 <th>Balancing SAM</th>
                                 <th>M/P</th>
@@ -6411,14 +6411,14 @@ COMPARISON_TEMPLATE = """
                             <span>Switch to Method A (Takt Time)</span>
                         </button>
                     </div>
-                    <div class="method-desc">Takt Merge = <strong>{{ "%.1f"|format(result.takt_time) }}s</strong> · Pitch = {{ "%.1f"|format(result.pitch_time) }}s · UCL = {{ "%.1f"|format(result.ucl) }}s · LCL = {{ "%.1f"|format(result.lcl) }}s</div>
+                    <div class="method-desc">Takt Merge = <strong>{{ "%.1f"|format(result.takt_time) }}sec</strong> · Pitch = {{ "%.1f"|format(result.pitch_time) }}sec · UCL = {{ "%.1f"|format(result.ucl) }}sec</div>
                 </div>
 
                 <!-- Method B Mini KPI Row -->
                 <div class="mini-kpi-grid" style="margin-bottom: 16px;">
                     <div class="mini-kpi">
                         <div class="k-lbl">Manpower</div>
-                        <div class="k-val" style="color: #fb923c;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">ops</span></div>
+                        <div class="k-val" style="color: #fb923c;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">optrs</span></div>
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Stations</div>
@@ -6430,7 +6430,7 @@ COMPARISON_TEMPLATE = """
                     </div>
                     <div class="mini-kpi">
                         <div class="k-lbl">Output</div>
-                        <div class="k-val">{{ "%.0f"|format(result.method_b.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/day</span></div>
+                        <div class="k-val">{{ "%.0f"|format(result.method_b.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/available time</span></div>
                     </div>
                 </div>
 
@@ -6444,12 +6444,11 @@ COMPARISON_TEMPLATE = """
                                 <th>Operations</th>
                                 <th>Machine</th>
                                 <th>Predecessor</th>
-                                <th>Basic Time</th>
+                                <th>SAM</th>
                                 <th>Combined SAM</th>
                                 <th>Balancing SAM</th>
                                 <th>M/P</th>
                                 <th>Pitch Time</th>
-                                <th>LCL</th>
                                 <th>UCL</th>
                                 <th>Status</th>
                             </tr>
@@ -6468,7 +6467,6 @@ COMPARISON_TEMPLATE = """
                                 <td style="font-weight: 700; color: #fb923c;">{{ r['Balancing SAM'] }}</td>
                                 <td><strong>{{ r['M/P'] }}</strong></td>
                                 <td style="color: #fb923c; font-weight: 600;">{{ r['Pitch Time'] }}</td>
-                                <td style="color: var(--text-muted);">{{ r['LCL'] }}</td>
                                 <td style="color: var(--text-muted);">{{ r['UCL'] }}</td>
                                 <td>
                                     {% if is_flagged %}
@@ -6814,7 +6812,7 @@ COMPARISON_TEMPLATE = """
                 optsBefore.plugins.annotation = {
                     annotations: {
                         taktLine: lineAnnotation(data.takt_time, '#ef4444'),
-                        pitchLine: lineAnnotation(data.pitch_time, '#3b82f6'),
+                        pitchLine: lineAnnotation(data.pitch_time, '#eab308'),
                     }
                 };
                 optChartBefore = new Chart(ctxBefore, {
@@ -6824,7 +6822,7 @@ COMPARISON_TEMPLATE = """
                         datasets: [
                             makeBarDataset('Operation Time', data.before_times, '#3882bd', 'rgba(56, 130, 189, 0.75)'),
                             makeLineLegendDataset('Takt Time (' + data.takt_time.toFixed(1) + 's)', '#ef4444'),
-                            makeLineLegendDataset('IE Pitch (' + data.pitch_time.toFixed(1) + 's)', '#3b82f6'),
+                            makeLineLegendDataset('IE Pitch (' + data.pitch_time.toFixed(1) + 's)', '#eab308'),
                         ]
                     },
                     options: optsBefore
@@ -6862,7 +6860,7 @@ COMPARISON_TEMPLATE = """
                 optsB.plugins.annotation = {
                     annotations: {
                         taktLine: lineAnnotation(data.takt_time, '#ef4444'),
-                        uclLine: lineAnnotation(data.ucl, '#f59e0b'),
+                        uclLine: lineAnnotation(data.ucl, '#3b82f6'),
                     }
                 };
                 optChartB = new Chart(ctxB, {
@@ -6872,7 +6870,7 @@ COMPARISON_TEMPLATE = """
                         datasets: [
                             makeBarDataset('Balancing SAM', data.method_b_times, '#fb923c', 'rgba(251, 146, 60, 0.75)'),
                             makeLineLegendDataset('Takt Time (' + data.takt_time.toFixed(1) + 's)', '#ef4444'),
-                            makeLineLegendDataset('UCL (' + data.ucl.toFixed(1) + 's)', '#f59e0b'),
+                            makeLineLegendDataset('UCL (' + data.ucl.toFixed(1) + 's)', '#3b82f6'),
                         ]
                     },
                     options: optsB
