@@ -1805,55 +1805,18 @@ def adapt_composite_result(result: Dict) -> Dict:
     calculate_composite_takt_vs_pitch_comparison() to match the exact
     data contract that COMPARISON_TEMPLATE (and the chart/export APIs)
     already consume from calculate_takt_vs_pitch_comparison().
-
-    Only the three confirmed mismatches are fixed here.  The composite
-    module's core logic and data are left entirely untouched.
-
-    Mismatches fixed
-    ================
-    1. rows[*]['Combined Basic Time'] alias missing
-       - Standard module adds a 'Combined Basic Time' key (duplicate of
-         'Combined SAM') in every row after building the DataFrame.
-         The template reads r['Combined SAM'] for display, but the key
-         must exist or Jinja will raise KeyError on some paths.
-       - Fix: copy 'Combined SAM' → 'Combined Basic Time' for every row
-         in both method_a.rows and method_b.rows.
-
-    2. rows[*] numeric fields returned as float, not formatted str
-       - Standard module runs a post-processing loop that turns
-         Combined SAM, Balancing SAM, Takt Time, Pitch Time, UCL, LCL
-         into '%.1f'-formatted strings.
-       - The template renders them directly with {{ r['...'] }};
-         floats render fine in Jinja but the exact string form is
-         expected by the export/comparison utilities.
-       - Fix: replicate the same string-formatting pass.
-
-    3. method_b['review_flag_count'] missing
-       - The standard module counts stations whose status contains
-         'review' or 'Above UCL' and stores the count in method_b.
-         The template conditionally renders a warning badge when
-         result.method_b.review_flag_count > 0.
-       - Fix: compute and inject the count from method_b['statuses'].
-
-    4. comparison[*].unit for 'Achievable Output': 'pcs/shift' → 'pcs/available time'
-       - The standard module uses "pcs/available time" as the unit
-         label; the composite module uses "pcs/shift".
-         The template renders the unit string directly in the table.
-       - Fix: rename in the comparison list in-place.
     """
     import copy
     res = copy.deepcopy(result)
 
     # ── Fix 1+2: rows post-processing for method_a ──────────────────────────
     for r in res["method_a"]["rows"]:
-        # Formatted strings (matching takt_pitch_comparison.py post-loop)
         if "Combined SAM" in r and isinstance(r["Combined SAM"], float):
             r["Combined SAM"] = f"{r['Combined SAM']:.1f}"
         if "Balancing SAM" in r and isinstance(r["Balancing SAM"], float):
             r["Balancing SAM"] = f"{r['Balancing SAM']:.1f}"
         if "Takt Time" in r and r["Takt Time"] != "" and isinstance(r["Takt Time"], float):
             r["Takt Time"] = f"{r['Takt Time']:.1f}"
-        # Combined Basic Time alias (Fix 1)
         r.setdefault("Combined Basic Time", r.get("Combined SAM", ""))
 
     # ── Fix 1+2: rows post-processing for method_b ──────────────────────────
@@ -1868,7 +1831,6 @@ def adapt_composite_result(result: Dict) -> Dict:
             r["UCL"] = f"{r['UCL']:.1f}"
         if "LCL" in r and r["LCL"] != "" and isinstance(r["LCL"], float):
             r["LCL"] = f"{r['LCL']:.1f}"
-        # Combined Basic Time alias (Fix 1)
         r.setdefault("Combined Basic Time", r.get("Combined SAM", ""))
 
     # ── Fix 3: inject review_flag_count into method_b ───────────────────────
@@ -7169,14 +7131,567 @@ COMPARISON_TEMPLATE = """
 """
 
 COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Composite Machine Balancing — Comparison</title>
-    <h1>Composite Machine Balancing — Comparison</h1>
+    <title>Cross-Machine Balancing — Composite Takt vs Pitch</title>
+    <script>
+        (function() {
+            try {
+                var savedTheme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } catch (e) {}
+        })();
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1419;
+            --surface: #1a2332;
+            --surface-2: #243044;
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e8edf4;
+            --text-muted: #8b9cb3;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --warning: #f59e0b;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --transition: 0.2s ease;
+        }
+
+        [data-theme="light"] {
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --border: rgba(15, 23, 42, 0.1);
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: background var(--transition), color var(--transition);
+        }
+
+        .container {
+            max-width: 1480px;
+            margin: 0 auto;
+            padding: 32px 24px 64px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-content { flex: 1; }
+
+        .header-content h1,
+        .header h1 {
+            font-size: 26px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        [data-theme="light"] .header-content h1,
+        [data-theme="light"] .header h1 {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-content p,
+        .header p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 6px;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .nav-tab {
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-decoration: none;
+            border-radius: 6px;
+            transition: var(--transition);
+        }
+
+        .nav-tab:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .nav-tab.active {
+            color: #fff;
+            background: var(--accent);
+        }
+
+        .btn-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #10b981;
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            text-decoration: none;
+            transition: var(--transition);
+        }
+
+        .btn-export:hover { background: #059669; }
+
+        .theme-toggle {
+            padding: 8px 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .theme-toggle:hover { border-color: var(--accent); }
+
+        /* Form Card */
+        .form-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 30px;
+            box-shadow: var(--shadow);
+        }
+
+        .form-card h2 {
+            font-size: 17px;
+            font-weight: 600;
+            margin-bottom: 18px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr auto;
+            gap: 16px;
+            align-items: end;
+        }
+
+        @media (max-width: 900px) {
+            .form-grid { grid-template-columns: 1fr; }
+        }
+
+        .field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .field input[type="file"],
+        .field input[type="number"],
+        input[type="file"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px 14px;
+            font-size: 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text);
+            outline: none;
+            transition: all var(--transition);
+        }
+
+        .field input[type="file"],
+        input[type="file"] {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .field input:focus,
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+        }
+
+        input[type="file"]::file-selector-button,
+        .field input[type="file"]::file-selector-button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            margin-right: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background var(--transition);
+        }
+
+        input[type="file"]::file-selector-button:hover,
+        .field input[type="file"]::file-selector-button:hover {
+            background: var(--accent-hover);
+        }
+
+        input[type="file"]::-webkit-file-upload-button,
+        .field input[type="file"]::-webkit-file-upload-button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            margin-right: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background var(--transition);
+        }
+
+        input[type="file"]::-webkit-file-upload-button:hover,
+        .field input[type="file"]::-webkit-file-upload-button:hover {
+            background: var(--accent-hover);
+        }
+
+        .form-card button[type="submit"] {
+            background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 12px 28px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+            transition: all var(--transition);
+            white-space: nowrap;
+        }
+
+        .form-card button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+        }
+
+        .form-card button[type="submit"]:active { transform: translateY(0); }
+
+        /* Info note */
+        .rule-note {
+            margin-top: 14px;
+            padding: 10px 14px;
+            background: rgba(59, 130, 246, 0.08);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .rule-note strong { color: var(--text); }
+
+        /* Error Box */
+        .error-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 16px 20px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        /* Metrics Card Rows */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .section-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            transition: var(--transition);
+        }
+
+        .metric-card:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .metric-card .label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .metric-card .value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .metric-card .unit {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-left: 2px;
+        }
+
+        /* Status Badges */
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .status-warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        /* Composite page accent pill */
+        .composite-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.35);
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #c4b5fd;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+
+        [data-theme="light"] .composite-badge {
+            background: rgba(109, 40, 217, 0.08);
+            border-color: rgba(109, 40, 217, 0.25);
+            color: #6d28d9;
+        }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <!-- ── Header ── -->
+        <div class="header">
+            <div class="header-content">
+                <h1>Cross-Machine Composite Balancing
+                    <span class="composite-badge">⚙ Multi-Machine</span>
+                </h1>
+                <p>Parallel balancing passes across <strong>different machine types</strong>:
+                   Method A (Strict Takt) vs Method B (IE Pitch ±15% Classification) —
+                   any machine type may merge with any other, except Press (Press-only rule).</p>
+            </div>
+            <div class="header-actions">
+                <nav class="nav-tabs">
+                    <a href="/" class="nav-tab">Takt vs Pitch</a>
+                    <a href="/line-balancing" class="nav-tab">Line Balancing</a>
+                    <a href="/composite-balancing" class="nav-tab active">Composite Balancing</a>
+                </nav>
+                {% if session_id %}
+                <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
+                    <span>Export Excel</span>
+                </a>
+                {% endif %}
+                <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+            </div>
+        </div>
+
+        <!-- ── 1. Comparison Parameters Form ── -->
+        <form method="post" action="/composite-balancing" enctype="multipart/form-data" class="form-card">
+            <h2>
+                <span>Comparison Parameters</span>
+            </h2>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Upload Excel/CSV File</label>
+                    <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+                </div>
+                <div class="field">
+                    <label>Available Time</label>
+                    <input type="number" name="shift_time"
+                           value="{% if result %}{{ result.shift_time_minutes }}{% else %}420{% endif %}"
+                           min="1" step="1" required>
+                </div>
+                <div class="field">
+                    <label>Customer Demand</label>
+                    <input type="number" name="production_target"
+                           value="{% if result %}{{ result.production_target }}{% else %}500{% endif %}"
+                           min="1" step="1" required>
+                </div>
+                <div class="field">
+                    <button type="submit">Run Comparison</button>
+                </div>
+            </div>
+            <div class="rule-note">
+                <span>ℹ️</span>
+                <span><strong>Composite Merging Rule:</strong>
+                    Any machine type may be combined with any other machine type in a workstation —
+                    <strong>except Press machines</strong>, which can only be combined with other Press machines.
+                    This differs from the standard Takt vs Pitch page where only same-type machines merge.</span>
+            </div>
+        </form>
+
+        {% if error %}
+        <div class="error-box">
+            <strong>Error:</strong> {{ error|safe }}
+        </div>
+        {% endif %}
+
+        {% if result %}
+        <!-- ── 2. Baseline Parameters & Control Limits ── -->
+        <div class="section-header">
+            <div class="section-title">
+                <span>Baseline Parameters &amp; Control Limits</span>
+            </div>
+        </div>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="label">Customer Demand</div>
+                <div class="value">{{ result.production_target }} <span class="unit">units</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Available Time</div>
+                <div class="value">{{ "%.1f"|format(result.shift_time_minutes) }} <span class="unit">min</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">SAM</div>
+                <div class="value">{{ "%.1f"|format(result.total_sam / 60) }} <span class="unit">min</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Input Operations</div>
+                <div class="value">{{ result.before.num_operations }} <span class="unit">ops</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Baseline Manpower</div>
+                <div class="value">{{ result.before.total_manpower }} <span class="unit">operators</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Baseline Efficiency</div>
+                <div class="value">{{ "%.1f"|format(result.before.efficiency_balancing_rate) }} <span class="unit">%</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Takt / IE Pitch Time</div>
+                <div class="value" style="color: #60a5fa;">{{ "%.1f"|format(result.takt_time) }} / {{ "%.1f"|format(result.pitch_time) }} <span class="unit">sec</span></div>
+            </div>
+            <div class="metric-card">
+                <div class="label">UCL / LCL (±15%)</div>
+                <div class="value">{{ "%.1f"|format(result.ucl) }} / {{ "%.1f"|format(result.lcl) }} <span class="unit">sec</span></div>
+            </div>
+            {% if result.method_b.review_flag_count > 0 %}
+            <div class="metric-card" style="border-color: rgba(245, 158, 11, 0.4);">
+                <div class="label" style="color: var(--warning);">Method B Flags</div>
+                <div class="value" style="color: var(--warning);">{{ result.method_b.review_flag_count }} <span class="status-badge status-warning">&gt; UCL</span></div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ═══ Sections 3-6 (Charts, Tables, KPI Bars, Recommendations) ═══ -->
+        <!-- ── Placeholder: Prompts 3 & 4 will fill these sections ──────── -->
+
+        {% endif %}
+    </div>
+
+    <script>
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = newTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+        }
+
+        // Sync theme button label on load
+        (function() {
+            const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+            document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = theme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+        })();
+    </script>
 </body>
 </html>
 """
