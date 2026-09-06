@@ -8168,6 +8168,8 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
             {% endif %}
         </div>
 
+        <!-- ═══ Sections 3-6 (Charts, Tables, KPI Bars, Recommendations) ═══ -->
+        <!-- ── Placeholder: Prompts 3 & 4 will fill these sections ──────── -->
         <!-- ── Before vs After — Balancing Comparison Charts ── -->
         <div class="opt-overview" id="optOverviewSection">
             <h2 class="opt-overview__title">Before vs After — Balancing Comparison Charts</h2>
@@ -8427,6 +8429,9 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        // Sync theme button label on load
+        (function() {
+            const theme = document.documentElement.getAttribute('data-theme') || 'dark';
         // ── Before vs After — Balancing Comparison Charts ──
         let optChartBefore = null, optChartA = null, optChartB = null;
 
@@ -8610,8 +8615,10 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
             const savedTheme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);
             document.querySelectorAll('.theme-toggle').forEach(button => {
+                button.textContent = theme === 'dark' ? '☀️ Light' : '🌙 Dark';
                 button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
             });
+        })();
 
             {% if session_id %}
             fetch('/api/composite-balancing-chart-data/{{ session_id }}')
