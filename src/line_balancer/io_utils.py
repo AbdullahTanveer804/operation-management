@@ -37,7 +37,7 @@ COLUMN_MAPPINGS = {
     "name": ["Operation", "Operations", "Operation name", "Name", "Label"],
     "predecessor": ["Predecessor", "Predecessors", "Pred", "Depends On", "Previous"],
     "machine_type": ["Machine Type", "Machine", "Equipment Type"],
-    "basic_time": ["Basic Time", "Basic_Time", "Time (s)", "SAM", "Time"],
+    "basic_time": ["Basic Time", "Basic_Time", "Time (s)", "SAM", "Time", "Basic SAM"],
 }
 
 

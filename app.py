@@ -727,8 +727,8 @@ def generate_before_chart_image(operations,
 # ============== ROUTES ==============
 
 
-@app.route("/", methods=["GET", "POST"])
-def index():
+@app.route("/line-balancing", methods=["GET", "POST"])
+def line_balancing():
     """Main page: upload file, configure parameters, view results."""
     error = None
     result = None
@@ -889,6 +889,9 @@ def index():
                                   result=result,
                                   rows=rows,
                                   session_id=session_id)
+
+
+index = line_balancing
 
 
 @app.route("/api/export/<format>/<session_id>")
@@ -1712,8 +1715,8 @@ def layout(session_id: str = None):
                                   rows=rows)
 
 
-@app.route("/compare", methods=["GET", "POST"])
-@app.route("/takt-vs-pitch", methods=["GET", "POST"])
+@app.route("/", methods=["GET", "POST"])
+@app.route("/home", methods=["GET", "POST"])
 def takt_vs_pitch():
     """Standalone Takt vs Pitch Comparison view."""
     error = None
@@ -2918,8 +2921,8 @@ HTML_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab active">Line Balancing</a>
-                    <a href="/takt-vs-pitch" class="nav-tab">Takt vs Pitch Comparison</a>
+                    <a href="/line-balancing" class="nav-tab active">Line Balancing</a>
+                    <a href="/" class="nav-tab">Takt vs Pitch Comparison</a>
                 </nav>
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
             </div>
@@ -3556,9 +3559,9 @@ HTML_TEMPLATE = """
                 if (!response.ok) {
                     const errorData = await response.json();
                     if (response.status === 404) {
-                        // Session expired, redirect to home with message
+                        // Session expired, redirect to line balancing with message
                         alert(errorData.message || 'Session expired. Please reload the data.');
-                        window.location.href = '/';
+                        window.location.href = '/line-balancing';
                         return;
                     }
                     throw new Error(errorData.error || 'Failed to load before chart data');
@@ -3574,7 +3577,7 @@ HTML_TEMPLATE = """
             } catch (error) {
                 console.error('Error loading before chart:', error);
                 alert('Error loading before chart data: ' + error.message);
-                window.location.href = '/';
+                window.location.href = '/line-balancing';
             }
         }
 
@@ -3584,9 +3587,9 @@ HTML_TEMPLATE = """
                 if (!response.ok) {
                     const errorData = await response.json();
                     if (response.status === 404) {
-                        // Session expired, redirect to home with message
+                        // Session expired, redirect to line balancing with message
                         alert(errorData.message || 'Session expired. Please reload the data.');
-                        window.location.href = '/';
+                        window.location.href = '/line-balancing';
                         return;
                     }
                     throw new Error(errorData.error || 'Failed to load chart data');
@@ -3623,7 +3626,7 @@ HTML_TEMPLATE = """
             } catch (error) {
                 console.error('Error loading chart:', error);
                 alert('Error loading chart data: ' + error.message);
-                window.location.href = '/';
+                window.location.href = '/line-balancing';
             }
         }
 
@@ -4548,11 +4551,11 @@ LAYOUT_TEMPLATE = """
                 <p>Detailed line balancing report table</p>
             </div>
             <div style="display: flex; align-items: center; gap: 12px;">
-                <a href="/" class="export-button" style="text-decoration: none; display: flex; align-items: center; gap: 6px;">
+                <a href="/line-balancing" class="export-button" style="text-decoration: none; display: flex; align-items: center; gap: 6px;">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                     </svg>
-                    Home
+                    Line Balancing
                 </a>
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
             </div>
@@ -4713,7 +4716,7 @@ LAYOUT_TEMPLATE = """
         <div class="status">
             <p>Layout view - detailed line balancing report table</p>
             <p style="margin-top: 10px; font-size: 14px;">
-                <a href="/" class="status-link">Load a calculation from the main view</a> to display the layout
+                <a href="/line-balancing" class="status-link">Load a calculation from the Line Balancing view</a> to display the layout
             </p>
         </div>
         {% endif %}
@@ -5991,8 +5994,8 @@ COMPARISON_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab">Line Balancing</a>
-                    <a href="/compare" class="nav-tab active">Takt vs Pitch Comparison</a>
+                    <a href="/line-balancing" class="nav-tab">Line Balancing</a>
+                    <a href="/" class="nav-tab active">Takt vs Pitch Comparison</a>
                 </nav>
                 {% if session_id %}
                 <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
@@ -6004,7 +6007,7 @@ COMPARISON_TEMPLATE = """
         </div>
 
         <!-- 1. Input Config Card -->
-        <form method="post" action="/compare" enctype="multipart/form-data" class="form-card">
+        <form method="post" action="/" enctype="multipart/form-data" class="form-card">
             <h2>
                 <span>Comparison Parameters</span>
             </h2>

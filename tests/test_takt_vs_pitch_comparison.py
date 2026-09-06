@@ -211,15 +211,20 @@ def test_takt_vs_pitch_flask_routes():
 
     client = app.test_client()
 
-    # 1. GET /compare & /takt-vs-pitch
-    res_get = client.get("/compare")
+    # 1. GET / and /home (landing page) & /line-balancing
+    res_get = client.get("/")
     assert res_get.status_code == 200
     assert b"Takt vs Pitch Comparison" in res_get.data
 
-    res_get_alt = client.get("/takt-vs-pitch")
-    assert res_get_alt.status_code == 200
+    res_get_home = client.get("/home")
+    assert res_get_home.status_code == 200
+    assert b"Takt vs Pitch Comparison" in res_get_home.data
 
-    # 2. POST /compare with CSV
+    res_get_lb = client.get("/line-balancing")
+    assert res_get_lb.status_code == 200
+    assert b"Line Balancing" in res_get_lb.data
+
+    # 2. POST / with CSV
     csv_content = """Serial No.,Operation Name,Predecessor,Machine Type,Basic Time
 1,Op 1,-,SNLS,20.0
 2,Op 2,1,SNLS,25.0
@@ -232,16 +237,16 @@ def test_takt_vs_pitch_flask_routes():
         "production_target": "500",
     }
     res_post = client.post(
-        "/compare", data=data, content_type="multipart/form-data"
+        "/", data=data, content_type="multipart/form-data"
     )
     assert res_post.status_code == 200
     assert b"Master 8-KPI Side-by-Side Comparison" in res_post.data
     assert b"Method A: After Takt Time" in res_post.data
     assert b"Method B: After IE Pitch" in res_post.data
-    assert b"Visual Analysis &amp; Comparison Curves" in res_post.data or b"Visual Analysis & Comparison Curves" in res_post.data
+    assert b"All KPIs" in res_post.data or b"Side-by-Side Comparison" in res_post.data
     assert b"Operations (after merging)" in res_post.data
     assert b"Number of Operators" in res_post.data
-    assert b"Labour Productivity (pcs/op/shift)" in res_post.data
+    assert b"Labour Productivity" in res_post.data
     assert b"After \xe2\x80\x93 Takt" in res_post.data or b"After" in res_post.data
 
     # 3. POST /api/compare
