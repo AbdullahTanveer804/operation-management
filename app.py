@@ -1959,7 +1959,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Line Balancing Optimizer</title>
+    <title>Line Balancing Optimizer — Line Balancing</title>
     <script>
         (function() {
             try {
@@ -2038,8 +2038,9 @@ HTML_TEMPLATE = """
             flex: 1;
         }
 
+        .header-content h1,
         .header h1 {
-            font-size: 28px;
+            font-size: 26px;
             font-weight: 700;
             background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
             -webkit-background-clip: text;
@@ -2047,6 +2048,7 @@ HTML_TEMPLATE = """
             background-clip: text;
         }
 
+        [data-theme="light"] .header-content h1,
         [data-theme="light"] .header h1 {
             background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
             -webkit-background-clip: text;
@@ -2054,9 +2056,11 @@ HTML_TEMPLATE = """
             background-clip: text;
         }
 
+        .header-content p,
         .header p {
             color: var(--text-muted);
             font-size: 14px;
+            margin-top: 4px;
         }
 
         .header-actions {
@@ -2978,7 +2982,7 @@ HTML_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab">Takt vs Pitch Comparison</a>
+                    <a href="/" class="nav-tab">Takt vs Pitch</a>
                     <a href="/line-balancing" class="nav-tab active">Line Balancing</a>
                 </nav>
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
@@ -2987,7 +2991,7 @@ HTML_TEMPLATE = """
 
         <form method="post" enctype="multipart/form-data" class="form-card">
             <h2>
-                <span>Configuration Parameters</span>
+                <span>Balancing Parameters</span>
             </h2>
             <div class="form-grid">
                 <div class="field file-upload-field">
@@ -4096,7 +4100,7 @@ LAYOUT_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Layout View</title>
+    <title>Layout View — Line Balancing</title>
     <script>
         (function() {
             try {
@@ -4173,8 +4177,9 @@ LAYOUT_TEMPLATE = """
             flex: 1;
         }
 
+        .header-content h1,
         .header h1 {
-            font-size: 28px;
+            font-size: 26px;
             font-weight: 700;
             background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
             -webkit-background-clip: text;
@@ -4182,6 +4187,7 @@ LAYOUT_TEMPLATE = """
             background-clip: text;
         }
 
+        [data-theme="light"] .header-content h1,
         [data-theme="light"] .header h1 {
             background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
             -webkit-background-clip: text;
@@ -4189,9 +4195,11 @@ LAYOUT_TEMPLATE = """
             background-clip: text;
         }
 
+        .header-content p,
         .header p {
             color: var(--text-muted);
             font-size: 14px;
+            margin-top: 4px;
         }
 
         .theme-toggle {
@@ -4894,6 +4902,10 @@ COMPARISON_TEMPLATE = """
             gap: 20px;
         }
 
+        .header-content {
+            flex: 1;
+        }
+
         .header-content h1,
         .header h1 {
             font-size: 26px;
@@ -4912,7 +4924,8 @@ COMPARISON_TEMPLATE = """
             background-clip: text;
         }
 
-        .header-content p {
+        .header-content p,
+        .header p {
             color: var(--text-muted);
             font-size: 14px;
             margin-top: 4px;
@@ -6070,7 +6083,7 @@ COMPARISON_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab active">Takt vs Pitch Comparison</a>
+                    <a href="/" class="nav-tab active">Takt vs Pitch</a>
                     <a href="/line-balancing" class="nav-tab">Line Balancing</a>
                 </nav>
                 {% if session_id %}
@@ -6089,7 +6102,7 @@ COMPARISON_TEMPLATE = """
             </h2>
             <div class="form-grid">
                 <div class="field">
-                    <label>Upload Excel/CSV Operations File</label>
+                    <label>Upload Excel/CSV File</label>
                     <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
                 </div>
                 <div class="field">
