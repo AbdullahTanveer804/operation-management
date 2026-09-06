@@ -10,12 +10,22 @@ from .metrics import calculate_line_balancing_rate, calculate_pitch_time as _cal
 from .models import Operation, Workstation
 from .takt_pitch_comparison import calculate_takt_vs_pitch_comparison
 from .comparison_recommendations import generate_takt_vs_pitch_recommendations
+from .balancing_by_composite_machines import (
+    calculate_composite_takt_vs_pitch_comparison,
+    can_combine_composite_machines,
+    balance_composite_method_a_takt,
+    balance_composite_method_b_pitch,
+)
 
 # Re-export the current package API.
 Operation = Operation
 Workstation = Workstation
 calculate_takt_vs_pitch_comparison = calculate_takt_vs_pitch_comparison
 generate_takt_vs_pitch_recommendations = generate_takt_vs_pitch_recommendations
+calculate_composite_takt_vs_pitch_comparison = calculate_composite_takt_vs_pitch_comparison
+can_combine_composite_machines = can_combine_composite_machines
+balance_composite_method_a_takt = balance_composite_method_a_takt
+balance_composite_method_b_pitch = balance_composite_method_b_pitch
 
 
 @dataclass
