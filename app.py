@@ -1960,6 +1960,14 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Line Balancing Optimizer</title>
+    <script>
+        (function() {
+            try {
+                var savedTheme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } catch (e) {}
+        })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
@@ -2011,9 +2019,9 @@ HTML_TEMPLATE = """
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1480px;
             margin: 0 auto;
-            padding: 32px 24px;
+            padding: 32px 24px 64px;
         }
 
         /* Header */
@@ -2021,7 +2029,7 @@ HTML_TEMPLATE = """
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 40px;
+            margin-bottom: 28px;
             flex-wrap: wrap;
             gap: 20px;
         }
@@ -2051,23 +2059,6 @@ HTML_TEMPLATE = """
             font-size: 14px;
         }
 
-        .theme-toggle {
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-muted);
-            transition: all var(--transition);
-        }
-
-        .theme-toggle:hover {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
-        }
-
         .header-actions {
             display: flex;
             align-items: center;
@@ -2080,87 +2071,129 @@ HTML_TEMPLATE = """
             gap: 6px;
             background: var(--surface-2);
             padding: 4px;
-            border-radius: 999px;
+            border-radius: var(--radius-sm);
             border: 1px solid var(--border);
         }
 
         .nav-tab {
             padding: 6px 14px;
-            border-radius: 999px;
-            text-decoration: none;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--text-muted);
-            transition: all var(--transition);
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: var(--transition);
         }
 
         .nav-tab:hover {
             color: var(--text);
+            background: rgba(255, 255, 255, 0.05);
         }
 
         .nav-tab.active {
+            color: #fff;
             background: var(--accent);
-            color: #ffffff;
-            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
         }
 
-        /* Metrics Grid */
+        .theme-toggle {
+            padding: 8px 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent);
+        }
+
+        /* Form Card */
         .form-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 28px;
-            margin-bottom: 32px;
+            padding: 24px;
+            margin-bottom: 30px;
             box-shadow: var(--shadow);
         }
 
         .form-card h2 {
-            font-size: 12px;
+            font-size: 17px;
             font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted);
-            margin-bottom: 20px;
+            margin-bottom: 18px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .form-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
+            gap: 16px;
             align-items: end;
+        }
+
+        @media (max-width: 900px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .field {
             display: flex;
             flex-direction: column;
-            gap: 8px;
         }
 
         .field.hidden {
             display: none;
         }
 
+        .field label,
         label {
-            font-size: 13px;
-            font-weight: 500;
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
             color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
+        .field input[type="file"],
+        .field input[type="number"],
+        .field select,
         input[type="file"],
         input[type="number"],
         select {
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            color: var(--text);
+            width: 100%;
             padding: 12px 14px;
             font-size: 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text);
+            outline: none;
             transition: all var(--transition);
         }
 
+        .field select,
+        select {
+            cursor: pointer;
+        }
+
+        .field input[type="file"],
+        input[type="file"] {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .field input:focus,
+        .field select:focus,
         input:focus,
         select:focus {
             outline: none;
@@ -2168,7 +2201,8 @@ HTML_TEMPLATE = """
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
         }
 
-        input[type="file"]::file-selector-button {
+        input[type="file"]::file-selector-button,
+        .field input[type="file"]::file-selector-button {
             background: var(--accent);
             color: white;
             border: none;
@@ -2180,10 +2214,30 @@ HTML_TEMPLATE = """
             transition: background var(--transition);
         }
 
-        input[type="file"]::file-selector-button:hover {
+        input[type="file"]::file-selector-button:hover,
+        .field input[type="file"]::file-selector-button:hover {
             background: var(--accent-hover);
         }
 
+        input[type="file"]::-webkit-file-upload-button,
+        .field input[type="file"]::-webkit-file-upload-button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            margin-right: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background var(--transition);
+        }
+
+        input[type="file"]::-webkit-file-upload-button:hover,
+        .field input[type="file"]::-webkit-file-upload-button:hover {
+            background: var(--accent-hover);
+        }
+
+        .form-card button[type="submit"],
         button[type="submit"] {
             background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
             color: white;
@@ -2195,13 +2249,16 @@ HTML_TEMPLATE = """
             cursor: pointer;
             box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
             transition: all var(--transition);
+            white-space: nowrap;
         }
 
+        .form-card button[type="submit"]:hover,
         button[type="submit"]:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
         }
 
+        .form-card button[type="submit"]:active,
         button[type="submit"]:active {
             transform: translateY(0);
         }
@@ -2209,10 +2266,10 @@ HTML_TEMPLATE = """
         /* Error Message */
         .error-box {
             background: rgba(239, 68, 68, 0.1);
-            border: 1px solid var(--danger);
-            border-radius: var(--radius);
-            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
             padding: 16px 20px;
+            border-radius: var(--radius-sm);
             margin-bottom: 24px;
             font-size: 14px;
         }
@@ -2921,15 +2978,17 @@ HTML_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/line-balancing" class="nav-tab active">Line Balancing</a>
                     <a href="/" class="nav-tab">Takt vs Pitch Comparison</a>
+                    <a href="/line-balancing" class="nav-tab active">Line Balancing</a>
                 </nav>
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
             </div>
         </div>
 
         <form method="post" enctype="multipart/form-data" class="form-card">
-            <h2>Configuration</h2>
+            <h2>
+                <span>Configuration Parameters</span>
+            </h2>
             <div class="form-grid">
                 <div class="field file-upload-field">
                     <label>Upload Excel/CSV file</label>
@@ -2969,7 +3028,6 @@ HTML_TEMPLATE = """
                     <input type="number" name="available_time" id="available_time_input" value="420" placeholder="Available time in minutes" min="0" step="1">
                 </div>
                 <div class="field">
-                    <label>&nbsp;</label>
                     <button type="submit">Run calculations</button>
                 </div>
             </div>
@@ -4039,6 +4097,14 @@ LAYOUT_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Layout View</title>
+    <script>
+        (function() {
+            try {
+                var savedTheme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } catch (e) {}
+        })();
+    </script>
     <style>
         :root {
             --bg: #0f1419;
@@ -4088,9 +4154,9 @@ LAYOUT_TEMPLATE = """
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1480px;
             margin: 0 auto;
-            padding: 32px 24px;
+            padding: 32px 24px 64px;
         }
 
         /* Header */
@@ -4098,7 +4164,7 @@ LAYOUT_TEMPLATE = """
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 40px;
+            margin-bottom: 28px;
             flex-wrap: wrap;
             gap: 20px;
         }
@@ -4129,20 +4195,19 @@ LAYOUT_TEMPLATE = """
         }
 
         .theme-toggle {
+            padding: 8px 14px;
             background: var(--surface-2);
             border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            color: var(--text);
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            color: var(--text-muted);
-            transition: all var(--transition);
+            transition: var(--transition);
         }
 
         .theme-toggle:hover {
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
         }
 
         /* Target Workflow Notifications */
@@ -4745,6 +4810,9 @@ LAYOUT_TEMPLATE = """
             // Update all theme toggle buttons on the page
             document.querySelectorAll('.theme-toggle').forEach(button => {
                 button.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+            });
+        });
+
         // Export function
         function exportFile(format, sessionId) {
             window.location.href = `/api/export/${format}/${sessionId}`;
@@ -4761,6 +4829,14 @@ COMPARISON_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Takt vs Pitch Comparison — Line Balancing</title>
+    <script>
+        (function() {
+            try {
+                var savedTheme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } catch (e) {}
+        })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
@@ -5994,8 +6070,8 @@ COMPARISON_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/line-balancing" class="nav-tab">Line Balancing</a>
                     <a href="/" class="nav-tab active">Takt vs Pitch Comparison</a>
+                    <a href="/line-balancing" class="nav-tab">Line Balancing</a>
                 </nav>
                 {% if session_id %}
                 <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
