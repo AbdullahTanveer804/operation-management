@@ -3112,10 +3112,10 @@ HTML_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab">Takt vs Pitch</a>
-                    <a href="/line-balancing" class="nav-tab active">Line Balancing</a>
-                    <a href="/composite-balancing" class="nav-tab">Composite Balancing</a>
-                </nav>
+                    <a href="/" class="nav-tab">Same-Machine Balancing</a>
+                    <a href="/composite-balancing" class="nav-tab">Composite-Machine Balancing</a>
+                    <a href="/line-balancing" class="nav-tab active">More</a>
+                </nav> 
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
             </div>
         </div>
@@ -6247,16 +6247,14 @@ COMPARISON_TEMPLATE = """
         <!-- Header -->
         <div class="header">
             <div class="header-content">
-                <h1>Takt vs Pitch Comparison
-                         <span class="same-badge">⚙ Same-Machine</span>
-                </h1>               
+                <h1>Same Machine Balancing Comparison</h1>               
                 <p>Parallel balancing passes: Method A (Strict Takt) vs Method B (IE Pitch ±15% Classification)</p>
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab active">Takt vs Pitch</a>
-                    <a href="/line-balancing" class="nav-tab">Line Balancing</a>
-                    <a href="/composite-balancing" class="nav-tab">Composite Balancing</a>
+                    <a href="/" class="nav-tab active">Same-Machine Balancing</a>
+                    <a href="/composite-balancing" class="nav-tab">Composite-Machine Balancing</a>
+                    <a href="/line-balancing" class="nav-tab">More</a>
                 </nav>
                 {% if session_id %}
                 <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
@@ -8059,17 +8057,15 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
         <!-- ── Header ── -->
         <div class="header">
             <div class="header-content">
-                <h1>Cross-Machine Composite Balancing
-                    <span class="composite-badge">⚙ Multi-Machine</span>
-                </h1>
+                <h1>Cross Machine Balancing Comparison</h1>
                 <p>Parallel balancing passes across <strong>different machine types</strong>:
                    Method A (Strict Takt) vs Method B (IE Pitch ±15% Classification)</p>
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab">Takt vs Pitch</a>
-                    <a href="/line-balancing" class="nav-tab">Line Balancing</a>
-                    <a href="/composite-balancing" class="nav-tab active">Composite Balancing</a>
+                    <a href="/" class="nav-tab">Same-Machine Balancing</a>
+                    <a href="/composite-balancing" class="nav-tab active">Composite-Machine Balancing</a>
+                    <a href="/line-balancing" class="nav-tab">More</a>
                 </nav>
                 {% if session_id %}
                 <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
