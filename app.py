@@ -32,6 +32,7 @@ from src.line_balancer.report import build_report_dataframe, determine_status
 from src.line_balancer.before_balancing_metrics import calculate_all_before_metrics
 from src.line_balancer.takt_pitch_comparison import calculate_takt_vs_pitch_comparison
 from src.line_balancer.comparison_export import generate_comparison_excel
+from src.line_balancer.balancing_by_composite_machines import calculate_composite_takt_vs_pitch_comparison
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max
@@ -1798,6 +1799,172 @@ def takt_vs_pitch():
     )
 
 
+def adapt_composite_result(result: Dict) -> Dict:
+    """
+    Thin adapter that normalises the output of
+    calculate_composite_takt_vs_pitch_comparison() to match the exact
+    data contract that COMPARISON_TEMPLATE (and the chart/export APIs)
+    already consume from calculate_takt_vs_pitch_comparison().
+
+    Only the three confirmed mismatches are fixed here.  The composite
+    module's core logic and data are left entirely untouched.
+
+    Mismatches fixed
+    ================
+    1. rows[*]['Combined Basic Time'] alias missing
+       - Standard module adds a 'Combined Basic Time' key (duplicate of
+         'Combined SAM') in every row after building the DataFrame.
+         The template reads r['Combined SAM'] for display, but the key
+         must exist or Jinja will raise KeyError on some paths.
+       - Fix: copy 'Combined SAM' → 'Combined Basic Time' for every row
+         in both method_a.rows and method_b.rows.
+
+    2. rows[*] numeric fields returned as float, not formatted str
+       - Standard module runs a post-processing loop that turns
+         Combined SAM, Balancing SAM, Takt Time, Pitch Time, UCL, LCL
+         into '%.1f'-formatted strings.
+       - The template renders them directly with {{ r['...'] }};
+         floats render fine in Jinja but the exact string form is
+         expected by the export/comparison utilities.
+       - Fix: replicate the same string-formatting pass.
+
+    3. method_b['review_flag_count'] missing
+       - The standard module counts stations whose status contains
+         'review' or 'Above UCL' and stores the count in method_b.
+         The template conditionally renders a warning badge when
+         result.method_b.review_flag_count > 0.
+       - Fix: compute and inject the count from method_b['statuses'].
+
+    4. comparison[*].unit for 'Achievable Output': 'pcs/shift' → 'pcs/available time'
+       - The standard module uses "pcs/available time" as the unit
+         label; the composite module uses "pcs/shift".
+         The template renders the unit string directly in the table.
+       - Fix: rename in the comparison list in-place.
+    """
+    import copy
+    res = copy.deepcopy(result)
+
+    # ── Fix 1+2: rows post-processing for method_a ──────────────────────────
+    for r in res["method_a"]["rows"]:
+        # Formatted strings (matching takt_pitch_comparison.py post-loop)
+        if "Combined SAM" in r and isinstance(r["Combined SAM"], float):
+            r["Combined SAM"] = f"{r['Combined SAM']:.1f}"
+        if "Balancing SAM" in r and isinstance(r["Balancing SAM"], float):
+            r["Balancing SAM"] = f"{r['Balancing SAM']:.1f}"
+        if "Takt Time" in r and r["Takt Time"] != "" and isinstance(r["Takt Time"], float):
+            r["Takt Time"] = f"{r['Takt Time']:.1f}"
+        # Combined Basic Time alias (Fix 1)
+        r.setdefault("Combined Basic Time", r.get("Combined SAM", ""))
+
+    # ── Fix 1+2: rows post-processing for method_b ──────────────────────────
+    for r in res["method_b"]["rows"]:
+        if "Combined SAM" in r and isinstance(r["Combined SAM"], float):
+            r["Combined SAM"] = f"{r['Combined SAM']:.1f}"
+        if "Balancing SAM" in r and isinstance(r["Balancing SAM"], float):
+            r["Balancing SAM"] = f"{r['Balancing SAM']:.1f}"
+        if "Pitch Time" in r and r["Pitch Time"] != "" and isinstance(r["Pitch Time"], float):
+            r["Pitch Time"] = f"{r['Pitch Time']:.1f}"
+        if "UCL" in r and r["UCL"] != "" and isinstance(r["UCL"], float):
+            r["UCL"] = f"{r['UCL']:.1f}"
+        if "LCL" in r and r["LCL"] != "" and isinstance(r["LCL"], float):
+            r["LCL"] = f"{r['LCL']:.1f}"
+        # Combined Basic Time alias (Fix 1)
+        r.setdefault("Combined Basic Time", r.get("Combined SAM", ""))
+
+    # ── Fix 3: inject review_flag_count into method_b ───────────────────────
+    statuses_b = res["method_b"].get("statuses", [])
+    res["method_b"]["review_flag_count"] = sum(
+        1 for s in statuses_b if "review" in s.lower() or "Above UCL" in s
+    )
+
+    # ── Fix 4: normalise Achievable Output unit label ────────────────────────
+    for row in res["comparison"]:
+        if row.get("metric") == "Achievable Output":
+            row["unit"] = "pcs/available time"
+            row["formatted_before"] = row["formatted_before"].replace("pcs/shift", "pcs/available time")
+            row["formatted_method_a"] = row["formatted_method_a"].replace("pcs/shift", "pcs/available time")
+            row["formatted_method_b"] = row["formatted_method_b"].replace("pcs/shift", "pcs/available time")
+
+    return res
+
+
+@app.route("/composite-balancing", methods=["GET", "POST"])
+@app.route("/composite-comparison", methods=["GET", "POST"])
+def composite_balancing():
+    """Composite Machine Balancing comparison view."""
+    error = None
+    result = None
+    session_id = None
+
+    if request.method == "POST":
+        try:
+            file = request.files.get("file")
+            shift_time_str = request.form.get("shift_time", "")
+            production_target_str = request.form.get("production_target", "")
+
+            if not file or file.filename == "":
+                error = "Please select an Excel or CSV file to upload."
+            elif not shift_time_str or not production_target_str:
+                error = "Both Shift Time and Production Target are required."
+            else:
+                shift_time_minutes = float(shift_time_str)
+                production_target = int(production_target_str)
+
+                if shift_time_minutes <= 0:
+                    error = "Shift time must be a positive number."
+                elif production_target <= 0:
+                    error = "Production target must be a positive number."
+                else:
+                    filepath = Path(file.filename)
+                    if filepath.suffix.lower() not in (".csv", ".xlsx",
+                                                       ".xls"):
+                        error = "File must be Excel (.xlsx, .xls) or CSV."
+                    else:
+                        temp_path = None
+                        try:
+                            with tempfile.NamedTemporaryFile(
+                                    mode='wb',
+                                    delete=False,
+                                    suffix=Path(file.filename).suffix) as tmp:
+                                file.save(tmp.name)
+                                temp_path = tmp.name
+
+                            operations = read_operations(temp_path)
+                            flagged = [op for op in operations if op.flagged]
+                            if flagged:
+                                error_list = "<br>".join([
+                                    f"Op {op.op_id}: {op.flagged}"
+                                    for op in flagged
+                                ])
+                                error = f"File has validation errors:<br>{error_list}"
+                            else:
+                                raw = calculate_composite_takt_vs_pitch_comparison(
+                                    operations,
+                                    shift_time_minutes,
+                                    production_target,
+                                )
+                                result = adapt_composite_result(raw)
+                                session_id = generate_session_id()
+                                store_calculation(session_id, result)
+                        finally:
+                            if temp_path and os.path.exists(temp_path):
+                                try:
+                                    os.unlink(temp_path)
+                                except Exception:
+                                    pass
+        except Exception as e:
+            error = f"Error during calculation: {str(e)}"
+            import traceback
+            traceback.print_exc()
+
+    return render_template_string(
+        COMPOSITE_COMPARISON_TEMPLATE,
+        error=error,
+        result=result,
+        session_id=session_id,
+    )
+
+
 @app.route("/api/takt-vs-pitch", methods=["POST"])
 @app.route("/api/compare", methods=["POST"])
 def api_takt_vs_pitch():
@@ -2984,6 +3151,7 @@ HTML_TEMPLATE = """
                 <nav class="nav-tabs">
                     <a href="/" class="nav-tab">Takt vs Pitch</a>
                     <a href="/line-balancing" class="nav-tab active">Line Balancing</a>
+                    <a href="/composite-balancing" class="nav-tab">Composite Balancing</a>
                 </nav>
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
             </div>
@@ -6085,6 +6253,7 @@ COMPARISON_TEMPLATE = """
                 <nav class="nav-tabs">
                     <a href="/" class="nav-tab active">Takt vs Pitch</a>
                     <a href="/line-balancing" class="nav-tab">Line Balancing</a>
+                    <a href="/composite-balancing" class="nav-tab">Composite Balancing</a>
                 </nav>
                 {% if session_id %}
                 <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
@@ -6995,6 +7164,19 @@ COMPARISON_TEMPLATE = """
             {% endif %}
         });
     </script>
+</body>
+</html>
+"""
+
+COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Composite Machine Balancing — Comparison</title>
+    <h1>Composite Machine Balancing — Comparison</h1>
+</head>
+<body>
 </body>
 </html>
 """
