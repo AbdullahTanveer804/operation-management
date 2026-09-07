@@ -2,9 +2,10 @@
 Line Balancing by Composite Machines - Takt vs Pitch Comparison
 
 In this balancing mode:
-- Any machine type can combine with any different machine type (e.g. SNLS + 3TOL, 5TOL + SNLS)
+- Any regular machine type can combine with any different machine type (e.g. SNLS + 3TOL, 5TOL + SNLS)
+- Regular helper-machines (By Hand, Pointer, Pencil, Clipper) can combine with any machine type
   EXCEPT:
-  - Press can ONLY combine with another Press machine (never with regular machines or helper categories)
+  - Press has a special restriction: it can ONLY combine with other helper-machines (By Hand, Pointer, Pencil, Clipper) and itself (Press), never with regular sewing/stitching machines
 - Predecessor dependency is strictly respected:
   An operation cannot be placed ahead of the operation it depends on.
 - Runs both Method A (Takt Time Balancing) and Method B (IE Pitch Balancing)
@@ -69,6 +70,10 @@ except ImportError:
     from src.line_balancer.io_utils import read_operations
 
 
+# Helper machines that can combine with Press (case-insensitive)
+PRESS_COMPATIBLE_HELPERS = {"by hand", "pointer", "pencil", "clipper"}
+
+
 def is_press_machine(machine_type: str) -> bool:
     """
     Check if a machine type is a Press category machine.
@@ -80,12 +85,25 @@ def is_press_machine(machine_type: str) -> bool:
     return "press" in m
 
 
+def is_helper_machine(machine_type: str) -> bool:
+    """
+    Check if a machine type is a helper machine or a Press machine.
+    Helper categories: By Hand, Pointer, Pencil, Clipper, Press.
+    """
+    if not machine_type:
+        return False
+    m = machine_type.strip().lower()
+    return m in PRESS_COMPATIBLE_HELPERS or is_press_machine(machine_type)
+
+
 def can_combine_composite_machines(machine_type1: str, machine_type2: str) -> bool:
     """
     Machine combination rule for Composite Machine balancing:
-    - Any machine can combine with any different machine
-    - EXCEPT Press: Press can ONLY combine with Press.
-      If one is Press and the other is not, they cannot combine.
+    - Regular helper-machines (By Hand, Pointer, Pencil, Clipper) can combine with any machine.
+    - Regular machine types can combine with any other machine (composite balancing).
+    - EXCEPT Press: Press has a special restriction and can ONLY combine with
+      other helper-machines (By Hand, Pointer, Pencil, Clipper) and itself (Press).
+      Press CANNOT combine with regular sewing/stitching machines (e.g., SNLS, Overlock, Flatlock, etc.).
     
     Args:
         machine_type1: First operation machine type
@@ -97,11 +115,16 @@ def can_combine_composite_machines(machine_type1: str, machine_type2: str) -> bo
     is_press1 = is_press_machine(machine_type1)
     is_press2 = is_press_machine(machine_type2)
 
-    # If one is Press and the other is not -> cannot combine
-    if is_press1 != is_press2:
-        return False
-
     # If both are Press -> can combine
+    if is_press1 and is_press2:
+        return True
+
+    # If one is Press: it can ONLY combine if the other is also a helper-machine
+    if is_press1:
+        return is_helper_machine(machine_type2)
+    if is_press2:
+        return is_helper_machine(machine_type1)
+
     # If neither is Press -> any machine can combine with any other machine
     return True
 
@@ -153,7 +176,7 @@ def balance_composite_method_a_takt(sorted_operations: List[Operation],
     - Ceiling = Takt Time (Shift Time * 60 / Production Target)
     - Strict mode — zero relaxation.
     - Merge compatible cross-machine ops up to Takt ceiling using best-fit matching.
-    - Press can only combine with Press.
+    - Press can only combine with helper-machines and Press.
     - Any single op exceeding Takt gets manpower-split using divide-and-increment.
     """
     workstations: List[Workstation] = []
@@ -223,7 +246,7 @@ def balance_composite_method_b_pitch(
     Method B — IE Pitch Balancing with Composite Machine capability.
     
     - Ceiling for MERGING = UCL (min(UCL, Takt Time) for safety).
-      Evaluates compatible candidates across machines (except Press only with Press)
+      Evaluates compatible candidates across machines (except Press only with helper-machines and Press)
       and selects the Best Match (closest to Pitch Time <= UCL).
     - Ceiling for SPLITTING single operations = Takt Time.
       Single op > Takt Time gets manpower-split (2..n) until time/manpower <= Takt Time.
@@ -718,7 +741,7 @@ def print_cli_results(result: Dict, filepath: str):
     print(f"  Total Basic SAM   : {total_sam:.1f} seconds ({total_sam / 60.0:.2f} minutes)")
     print(f"  Calculated Takt   : {takt_time:.1f} seconds")
     print(f"  Calculated Pitch  : {pitch_time:.1f} seconds  [LCL = {lcl:.1f}s, UCL = {ucl:.1f}s]")
-    print(f"  Rule Applied      : Any machine can combine with any machine (EXCEPT Press can ONLY combine with Press)")
+    print(f"  Rule Applied      : Any machine can combine with any machine (EXCEPT Press can ONLY combine with helper-machines and Press)")
     print(sep)
 
     # 1. METHOD A WORKSTATIONS

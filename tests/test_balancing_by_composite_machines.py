@@ -27,13 +27,21 @@ def test_is_press_machine():
 
 
 def test_can_combine_composite_machines():
-    # Press can only combine with Press
+    # Press can combine with Press and helper-machines
     assert can_combine_composite_machines("Press", "Press") is True
     assert can_combine_composite_machines("Iron Press", "Press") is True
+    assert can_combine_composite_machines("Press", "By Hand") is True
+    assert can_combine_composite_machines("By Hand", "Press") is True
+    assert can_combine_composite_machines("Press", "Pointer") is True
+    assert can_combine_composite_machines("Press", "Pencil") is True
+    assert can_combine_composite_machines("Press", "Clipper") is True
+
+    # Press CANNOT combine with regular machines
     assert can_combine_composite_machines("Press", "SNLS") is False
     assert can_combine_composite_machines("SNLS", "Press") is False
-    assert can_combine_composite_machines("Press", "By Hand") is False
     assert can_combine_composite_machines("Press", "3TOL") is False
+    assert can_combine_composite_machines("Press", "Overlock") is False
+    assert can_combine_composite_machines("Press", "Flatlock") is False
 
     # Any non-press machine can combine with any other non-press machine
     assert can_combine_composite_machines("SNLS", "SNLS") is True
@@ -117,4 +125,21 @@ def test_composite_balancing_with_input2():
     ws_b = res["method_b"]["workstations"]
     assert len(ws_b) == 24
     assert len(res["method_b"]["statuses"]) == 24
+
+
+def test_composite_balancing_press_with_helper():
+    ops = [
+        # Op 1 (Press, 25s) and Op 2 (By Hand, 20s) can merge: 25 + 20 = 45 <= 60
+        Operation(op_id=1, name="Press Op", predecessors=[], machine_type="Press", basic_time=25.0),
+        Operation(op_id=2, name="Hand Op", predecessors=[1], machine_type="By Hand", basic_time=20.0),
+    ]
+    takt_time = 60.0
+    workstations = balance_composite_method_a_takt(ops, takt_time)
+
+    assert len(workstations) == 1
+    assert len(workstations[0].operations) == 2
+    assert workstations[0].operations[0].op_id == 1
+    assert workstations[0].operations[1].op_id == 2
+    assert workstations[0].balancing_sam == 45.0
+
 

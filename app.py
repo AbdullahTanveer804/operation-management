@@ -8408,7 +8408,7 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
                 </div>
             </div>
             <div class="rule-note">
-                <span><strong>Merging Rule:</strong> Any machine types can combine in a workstation (except Press merges only with Press).</span>
+                <span><strong>Merging Rule:</strong> Any machine types can combine in a workstation (except Press combines only with helper-machines and Press).</span>
             </div>
         </form>
 
@@ -8480,7 +8480,7 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
                         <span class="opt-key-item__text"><strong>Legend:</strong> Bars represent operator stations / workstations and their assigned time</span>
                     </div>
                     <div class="opt-key-item">
-                        <span class="opt-key-item__text"><strong>Workstations:</strong> Workstations can merge operations across different machine types (e.g., SNLS + 3TOL), except Press which combines strictly with Press</span>
+                        <span class="opt-key-item__text"><strong>Workstations:</strong> Workstations can merge operations across different machine types (e.g., SNLS + 3TOL), except Press which combines only with helper-machines and Press</span>
                     </div>
                     <div class="opt-key-item">
                         <span class="opt-key-item__text"><strong>Axes:</strong> X-axis = Stations · Y-axis = Time (seconds) — <em>same scale across all charts</em></span>
