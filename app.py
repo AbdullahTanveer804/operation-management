@@ -6306,10 +6306,7 @@ COMPARISON_TEMPLATE = """
                 </div>
             </div>
             <div class="rule-note">
-                <span><strong>Composite Merging Rule:</strong>
-                    Any machine type may be combined with any other machine type in a workstation —
-                    <strong>except Press machines</strong>, which can only be combined with other Press machines.
-                    This differs from the standard Takt vs Pitch page where only same-type machines merge.</span>
+                <span><strong>Merging Rule:</strong> Only identical machine types can combine in a workstation.</span>
             </div>
         </form>
 
@@ -8411,10 +8408,7 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
                 </div>
             </div>
             <div class="rule-note">
-                <span><strong>Composite Merging Rule:</strong>
-                    Any machine type may be combined with any other machine type in a workstation —
-                    <strong>except Press machines</strong>, which can only be combined with other Press machines.
-                    This differs from the standard Takt vs Pitch page where only same-type machines merge.</span>
+                <span><strong>Merging Rule:</strong> Any machine types can combine in a workstation (except Press merges only with Press).</span>
             </div>
         </form>
 
