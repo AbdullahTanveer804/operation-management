@@ -2081,6 +2081,24 @@ def export_comparison(session_id: str, format: str = "xlsx"):
     )
 
 
+@app.route("/api/export/composite/xlsx/<session_id>")
+@app.route("/api/export/composite/<format>/<session_id>")
+def export_composite_comparison(session_id: str, format: str = "xlsx"):
+    """Export composite machine balancing comparison results to Excel with distinct filename."""
+    calc = get_calculation(session_id)
+    if not calc or "method_a" not in calc or "method_b" not in calc:
+        return jsonify({"error": "Composite comparison session not found"}), 404
+
+    excel_buf = generate_comparison_excel(calc)
+    filename = f"Composite_Machine_Balancing_Report_{session_id}.xlsx"
+    return send_file(
+        excel_buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 # ============== HTML TEMPLATES ==============
 
 HTML_TEMPLATE = """
@@ -8050,6 +8068,296 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
         }
 
         [data-theme="light"] .kpi-label { color: #475569; }
+
+        /* Workstation Layout Single View & Switcher */
+        .layout-control-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .layout-control-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .layout-tabs {
+            display: flex;
+            background: var(--surface-2);
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            gap: 4px;
+        }
+
+        .layout-tab-btn {
+            padding: 7px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .layout-tab-btn:hover {
+            color: var(--text);
+        }
+
+        .layout-tab-btn.active {
+            background: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+        }
+
+        .method-layout-container {
+            animation: fadeIn 0.2s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .method-col-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .method-header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .btn-method-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: inherit;
+            background: linear-gradient(135deg, #2563eb 0%, #059669 100%);
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-method-switch:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #047857 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(5, 150, 105, 0.4);
+        }
+
+        .btn-method-switch:active {
+            transform: translateY(0);
+        }
+
+        .method-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .badge-takt {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .badge-pitch {
+            background: rgba(251, 146, 60, 0.15);
+            color: #fb923c;
+            border: 1px solid rgba(251, 146, 60, 0.3);
+        }
+
+        .method-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .mini-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 700px) {
+            .mini-kpi-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .mini-kpi {
+            background: var(--surface-2);
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .mini-kpi .k-lbl {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .mini-kpi .k-val {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        /* Tables */
+        .table-scroll {
+            overflow-x: auto;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            text-align: left;
+        }
+
+        .data-table th {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            font-weight: 600;
+            padding: 10px 12px;
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: 9px 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        .data-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .row-flagged {
+            background: rgba(245, 158, 11, 0.08) !important;
+        }
+
+        .row-flagged:hover {
+            background: rgba(245, 158, 11, 0.12) !important;
+        }
+
+        .status-ok {
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Recommendations Card */
+        .rec-card {
+            background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .rec-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .rec-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text);
+        }
+
+        .rec-bullet {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 18px;
+            line-height: 1.2;
+        }
+
+        /* Bottom Action Bar */
+        .bottom-action-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 24px;
+            margin-bottom: 32px;
+        }
+
+        .btn-large-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 32px;
+            font-size: 15px;
+            font-weight: 700;
+            background: #10b981;
+            color: #ffffff;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            text-decoration: none;
+            transition: var(--transition);
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-large-export:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -8068,7 +8376,7 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
                     <a href="/line-balancing" class="nav-tab">More</a>
                 </nav>
                 {% if session_id %}
-                <a href="/api/export/compare/xlsx/{{ session_id }}" class="btn-export">
+                <a href="/api/export/composite/xlsx/{{ session_id }}" class="btn-export">
                     <span>Export Excel</span>
                 </a>
                 {% endif %}
@@ -8401,8 +8709,196 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- ═══ Sections 5-6 (Workstation Layout Tables, Recommendations) ═══ -->
-        <!-- ── Placeholder: Prompt 4 will fill these sections ─────────────── -->
+        <!-- 5. Balanced Workstation Layout (Single View with Infinity Toggle Button) -->
+        <div class="layout-control-card">
+            <div class="section-header">
+                <div class="opt-overview__title">
+                    <span>Workstation Layout</span>
+                </div>
+            </div>
+            <!-- Method A View -->
+            <div id="methodViewA" class="method-layout-container">
+                <div class="method-col-header">
+                    <div class="method-header-left">
+                        <!-- Switch Button on Left in front of Flag -->
+                        <span class="method-badge badge-takt">Method A: After Takt Time</span>
+                        <button type="button" class="btn-method-switch" onclick="setMethodLayout('B')" title="Switch to Method B">
+                            <span>Switch to Method B (IE Pitch)</span>
+                        </button>
+                    </div>
+                    <div class="method-desc">Strict Takt = <strong>{{ "%.1f"|format(result.takt_time) }}sec</strong> · Zero relaxation · Strict divide-and-increment</div>
+                </div>
+
+                <!-- Method A Mini KPI Row -->
+                <div class="mini-kpi-grid" style="margin-bottom: 16px;">
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Manpower</div>
+                        <div class="k-val" style="color: #22c55e;">{{ result.method_a.total_manpower }} <span style="font-size: 11px; font-weight: normal;">optr</span></div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Stations</div>
+                        <div class="k-val">{{ result.method_a.num_workstations }}</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Efficiency</div>
+                        <div class="k-val" style="color: #22c55e;">{{ "%.1f"|format(result.method_a.efficiency_balancing_rate) }}%</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Output</div>
+                        <div class="k-val">{{ "%.0f"|format(result.method_a.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/available time</span></div>
+                    </div>
+                </div>
+
+                <!-- Method A Workstation Table -->
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>WS #</th>
+                                <th>Serial/Id</th>
+                                <th>Operations</th>
+                                <th>Machine</th>
+                                <th>Predecessor</th>
+                                <th>SAM</th>
+                                <th>Combined SAM</th>
+                                <th>Balancing SAM</th>
+                                <th>M/P</th>
+                                <th>Takt Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in result.method_a.rows %}
+                            <tr>
+                                <td><strong>{{ r['Composite Operations'] }}</strong></td>
+                                <td>{{ r['Serial/Id'] }}</td>
+                                <td>{{ r['Operations'] }}</td>
+                                <td>{{ r['Machine'] }}</td>
+                                <td>{{ r['Predecessor'] }}</td>
+                                <td>{{ r['Basic Time'] }}</td>
+                                <td style="font-weight: 600;">{{ r['Combined SAM'] }}</td>
+                                <td style="font-weight: 700; color: #22c55e;">{{ r['Balancing SAM'] }}</td>
+                                <td><strong>{{ r['M/P'] }}</strong></td>
+                                <td style="color: #22c55e; font-weight: 600;">{{ r['Takt Time'] }}</td>
+                                <td><span class="status-badge status-ok">{{ r['Status'] }}</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Method B View -->
+            <div id="methodViewB" class="method-layout-container" style="display: none;">
+                <div class="method-col-header">
+                    <div class="method-header-left">
+                        <!-- Switch Button on Left in front of Flag -->
+                        <span class="method-badge badge-pitch">Method B: After IE Pitch</span>
+                        <button type="button" class="btn-method-switch" onclick="setMethodLayout('A')" title="Switch to Method A">
+                            <span>Switch to Method A (Takt Time)</span>
+                        </button>
+                    </div>
+                    <div class="method-desc">Takt Merge = <strong>{{ "%.1f"|format(result.takt_time) }}sec</strong> · Pitch = {{ "%.1f"|format(result.pitch_time) }}sec · UCL = {{ "%.1f"|format(result.ucl) }}sec</div>
+                </div>
+
+                <!-- Method B Mini KPI Row -->
+                <div class="mini-kpi-grid" style="margin-bottom: 16px;">
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Manpower</div>
+                        <div class="k-val" style="color: #fb923c;">{{ result.method_b.total_manpower }} <span style="font-size: 11px; font-weight: normal;">optrs</span></div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Stations</div>
+                        <div class="k-val">{{ result.method_b.num_workstations }}</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Efficiency</div>
+                        <div class="k-val" style="color: #fb923c;">{{ "%.1f"|format(result.method_b.efficiency_balancing_rate) }}%</div>
+                    </div>
+                    <div class="mini-kpi">
+                        <div class="k-lbl">Output</div>
+                        <div class="k-val">{{ "%.0f"|format(result.method_b.achievable_output) }} <span style="font-size: 10px; font-weight: normal;">pcs/available time</span></div>
+                    </div>
+                </div>
+
+                <!-- Method B Workstation Table -->
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>WS #</th>
+                                <th>Serial/Id</th>
+                                <th>Operations</th>
+                                <th>Machine</th>
+                                <th>Predecessor</th>
+                                <th>SAM</th>
+                                <th>Combined SAM</th>
+                                <th>Balancing SAM</th>
+                                <th>M/P</th>
+                                <th>Pitch Time</th>
+                                <th>UCL</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in result.method_b.rows %}
+                            {% set is_flagged = 'Above UCL' in r['Status'] or 'review' in r['Status'] %}
+                            <tr class="{% if is_flagged %}row-flagged{% endif %}">
+                                <td><strong>{{ r['Composite Operations'] }}</strong></td>
+                                <td>{{ r['Serial/Id'] }}</td>
+                                <td>{{ r['Operations'] }}</td>
+                                <td>{{ r['Machine'] }}</td>
+                                <td>{{ r['Predecessor'] }}</td>
+                                <td>{{ r['Basic Time'] }}</td>
+                                <td style="font-weight: 600;">{{ r['Combined SAM'] }}</td>
+                                <td style="font-weight: 700; color: #fb923c;">{{ r['Balancing SAM'] }}</td>
+                                <td><strong>{{ r['M/P'] }}</strong></td>
+                                <td style="color: #fb923c; font-weight: 600;">{{ r['Pitch Time'] }}</td>
+                                <td style="color: var(--text-muted);">{{ r['UCL'] }}</td>
+                                <td>
+                                    {% if is_flagged %}
+                                        <span class="status-badge status-warning">{{ r['Status'] }}</span>
+                                    {% elif 'OK' in r['Status'] %}
+                                        <span class="status-badge status-ok">{{ r['Status'] }}</span>
+                                    {% else %}
+                                        <span class="status-badge status-danger">{{ r['Status'] }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. Text Callout Card (Recommendations) -->
+        {% if result.recommendations %}
+        <div class="rec-card">
+            <div class="section-header" style="margin-bottom: 8px;">
+                <div class="opt-overview__title">
+                    <span>Balancing Analysis &amp; Recommendations</span>
+                </div>
+            </div>
+            <div class="rec-list">
+                {% for rec in result.recommendations %}
+                <div class="rec-item">
+                    <span class="rec-bullet">•</span>
+                    <span>{{ rec }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 7. Bottom Action Bar -->
+        {% if session_id %}
+        <div class="bottom-action-bar">
+            <a href="/api/export/composite/xlsx/{{ session_id }}" class="btn-large-export">
+                <span>Download Full Comparison Report (Excel .xlsx with Charts)</span>
+            </a>
+        </div>
+        {% endif %}
 
         {% endif %}
     </div>
@@ -8420,6 +8916,31 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
             });
             if (window.currentChartData) {
                 renderOptOverviewCharts();
+            }
+        }
+
+        // Workstation Layout Switcher
+        let activeMethodLayout = 'A';
+
+        function toggleMethodLayout() {
+            if (activeMethodLayout === 'A') {
+                setMethodLayout('B');
+            } else {
+                setMethodLayout('A');
+            }
+        }
+
+        function setMethodLayout(method) {
+            activeMethodLayout = method;
+            const viewA = document.getElementById('methodViewA');
+            const viewB = document.getElementById('methodViewB');
+
+            if (method === 'A') {
+                if (viewA) viewA.style.display = 'block';
+                if (viewB) viewB.style.display = 'none';
+            } else {
+                if (viewA) viewA.style.display = 'none';
+                if (viewB) viewB.style.display = 'block';
             }
         }
 
