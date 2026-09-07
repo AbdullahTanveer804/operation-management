@@ -3130,8 +3130,8 @@ HTML_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab">Same-Machine Balancing</a>
-                    <a href="/composite-balancing" class="nav-tab">Composite-Machine Balancing</a>
+                    <a href="/" class="nav-tab">Same-Machine</a>
+                    <a href="/composite-balancing" class="nav-tab">Composite-Machine</a>
                     <a href="/line-balancing" class="nav-tab active">More</a>
                 </nav> 
                 <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
@@ -6270,8 +6270,8 @@ COMPARISON_TEMPLATE = """
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab active">Same-Machine Balancing</a>
-                    <a href="/composite-balancing" class="nav-tab">Composite-Machine Balancing</a>
+                    <a href="/" class="nav-tab active">Same-Machine</a>
+                    <a href="/composite-balancing" class="nav-tab">Composite-Machine</a>
                     <a href="/line-balancing" class="nav-tab">More</a>
                 </nav>
                 {% if session_id %}
@@ -8371,8 +8371,8 @@ COMPOSITE_COMPARISON_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div class="header-actions">
                 <nav class="nav-tabs">
-                    <a href="/" class="nav-tab">Same-Machine Balancing</a>
-                    <a href="/composite-balancing" class="nav-tab active">Composite-Machine Balancing</a>
+                    <a href="/" class="nav-tab">Same-Machine</a>
+                    <a href="/composite-balancing" class="nav-tab active">Composite-Machine</a>
                     <a href="/line-balancing" class="nav-tab">More</a>
                 </nav>
                 {% if session_id %}
