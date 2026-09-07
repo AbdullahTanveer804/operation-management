@@ -16,6 +16,10 @@ from .balancing_by_composite_machines import (
     balance_composite_method_a_takt,
     balance_composite_method_b_pitch,
 )
+from .balancing_auto_composite_machines import (
+    calculate_auto_composite_balancing,
+    group_and_balance_auto_composite,
+)
 
 # Re-export the current package API.
 Operation = Operation
@@ -26,6 +30,8 @@ calculate_composite_takt_vs_pitch_comparison = calculate_composite_takt_vs_pitch
 can_combine_composite_machines = can_combine_composite_machines
 balance_composite_method_a_takt = balance_composite_method_a_takt
 balance_composite_method_b_pitch = balance_composite_method_b_pitch
+calculate_auto_composite_balancing = calculate_auto_composite_balancing
+group_and_balance_auto_composite = group_and_balance_auto_composite
 
 
 @dataclass
