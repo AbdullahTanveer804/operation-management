@@ -20,18 +20,9 @@ from .balancing_auto_composite_machines import (
     calculate_auto_composite_balancing,
     group_and_balance_auto_composite,
 )
-
-# Re-export the current package API.
-Operation = Operation
-Workstation = Workstation
-calculate_takt_vs_pitch_comparison = calculate_takt_vs_pitch_comparison
-generate_takt_vs_pitch_recommendations = generate_takt_vs_pitch_recommendations
-calculate_composite_takt_vs_pitch_comparison = calculate_composite_takt_vs_pitch_comparison
-can_combine_composite_machines = can_combine_composite_machines
-balance_composite_method_a_takt = balance_composite_method_a_takt
-balance_composite_method_b_pitch = balance_composite_method_b_pitch
-calculate_auto_composite_balancing = calculate_auto_composite_balancing
-group_and_balance_auto_composite = group_and_balance_auto_composite
+def run_all_scenarios(*args, **kwargs):
+    from .all_scenarios import run_all_scenarios as _impl
+    return _impl(*args, **kwargs)
 
 
 @dataclass
